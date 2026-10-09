@@ -1,8 +1,13 @@
-# ---------- Build ----------
-# SDK base: has the dotnet SDK, so we can both publish the API and install Playwright
-# Chromium (+ resolve its OS deps for noble) here, then copy the browser cache forward.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# ---------- Build SPA ----------
+FROM node:24-trixie AS ui-build
+WORKDIR /src/MediaPager.App.Ui
+COPY MediaPager.App.Ui/ ./
+RUN npm ci && npm run build
+
+# ---------- Build API and official plugins ----------
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS app-build
 WORKDIR /src
+ARG APP_VERSION=dev
 COPY MediaPager.App.Api ./MediaPager.App.Api
 COPY MediaPager.App.Core ./MediaPager.App.Core
 COPY MediaPager.App.PluginContracts ./MediaPager.App.PluginContracts
@@ -14,13 +19,16 @@ COPY MediaPager.Plugins.Stream.Local ./MediaPager.Plugins.Stream.Local
 COPY MediaPager.Plugins.Subtitles.OpenSubtitles ./MediaPager.Plugins.Subtitles.OpenSubtitles
 COPY MediaPager.Plugins.Subtitles.Subdl ./MediaPager.Plugins.Subtitles.Subdl
 
-# Publish the API. Official plugins are deployed at build into the publish output's
-# plugins/official directory (same install-into-dir layout as community plugins).
-RUN dotnet publish MediaPager.App.Api/MediaPager.App.Api.csproj -c Release -o /app/publish -p:CompressionEnabled=false -p:MediaPagerOfficialPluginsDir=/app/publish/plugins/official
+# Publish the API and deploy shipped official plugins into its plugin directory.
+RUN dotnet publish MediaPager.App.Api/MediaPager.App.Api.csproj -c Release -o /app/publish \
+    -p:CompressionEnabled=false \
+    -p:Version=${APP_VERSION} \
+    -p:MediaPagerOfficialPluginsDir=/app/publish/plugins/official
 
-# Install Playwright Chromium and its OS dependencies for noble into a known path.
-# Use the Node CLI (no .NET project context needed), pinned to the same version as the
-# Microsoft.Playwright .NET package (1.63.0) so the browser build matches what the API expects.
+# The SPA and API share one origin in the single-container deployment.
+COPY --from=ui-build /src/MediaPager.App.Ui/dist/ /app/publish/wwwroot/
+
+# Install Playwright Chromium and its OS dependencies for server-side browser tasks.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
@@ -30,12 +38,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -rf /var/lib/apt/lists/*
 
 # ---------- Runtime ----------
-# .NET 10 ships noble (Ubuntu 24.04) as its full-OS variant; no Debian trixie/bookworm images.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 WORKDIR /app
+ARG APP_VERSION=dev
+LABEL org.opencontainers.image.title="MediaPager" \
+    org.opencontainers.image.source="https://github.com/MediaPager/MediaPager" \
+    org.opencontainers.image.version=${APP_VERSION}
 
-# OS libraries Playwright Chromium needs to launch on Ubuntu 24.04 (noble, t64 variants)
-# + ffmpeg/ffprobe, which the API requires on PATH for HLS→file downloads.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates ffmpeg fonts-liberation libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 \
     libcairo2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0t64 \
@@ -44,14 +53,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 libxss1 libxtst6 wget \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/publish .
+COPY --from=app-build /app/publish .
 
-# Bring in the Chromium browser downloaded during the build stage.
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-COPY --from=build /ms-playwright /ms-playwright
-
-ENV ASPNETCORE_URLS=http://0.0.0.0:5000 \
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    ASPNETCORE_URLS=http://0.0.0.0:5000 \
     MEDIAPAGER_DB_PATH=/data/db/mediapager-auth.db \
     MEDIAPAGER_Plugins__Directory=/app/plugins
+COPY --from=app-build /ms-playwright /ms-playwright
+
 EXPOSE 5000
 ENTRYPOINT ["dotnet", "MediaPager.App.Api.dll"]
