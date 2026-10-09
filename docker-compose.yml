@@ -1,13 +1,13 @@
 # Portable: override these via a .env file or your shell; defaults work for a local run.
-#   MPAGER_DATA_DIR     -> where the SQLite DB + app state persist on the host
-#   MPAGER_MOVIES_DIR   -> host path to your movie library (mounted at /mnt/movies)
-#   MPAGER_QNET_NETWORK -> QNAP qnet network name (gives the web container its own LAN IP)
-#   MPAGER_WEB_IP       -> static LAN IP for the web container (must be free on your LAN)
+#   MEDIAPAGER_DATA_DIR     -> where the SQLite DB + app state persist on the host
+#   MEDIAPAGER_MOVIES_DIR   -> host path to your movie library (mounted at /mnt/movies)
+#   MEDIAPAGER_QNET_NETWORK -> QNAP qnet network name (gives the web container its own LAN IP)
+#   MEDIAPAGER_WEB_IP       -> static LAN IP for the web container (must be free on your LAN)
 networks:
   internal: {}
   qnet:
     external: true
-    name: ${MPAGER_QNET_NETWORK:?Set MPAGER_QNET_NETWORK in .env (your QNAP qnet network name)}
+    name: ${MEDIAPAGER_QNET_NETWORK:?Set MEDIAPAGER_QNET_NETWORK in .env (your QNAP qnet network name)}
 
 services:
   mediapager-api:
@@ -16,17 +16,16 @@ services:
     restart: unless-stopped
     environment:
       # SQLite lives under /data, which is volume-mounted so it persists across rebuilds.
-      MPAGER_AUTH_DB_PATH: /data/db/mediapager-auth.db
+      MEDIAPAGER_DB_PATH: ${MEDIAPAGER_DB_PATH:-/data/db/mediapager-auth.db}
       ASPNETCORE_URLS: http://0.0.0.0:5000
-      # First-run super-admin seed (only created if this email doesn't already exist).
-      # The generated temporary password is printed once to the api container logs;
-      # change it after first login, then you may remove this var.
-      MPAGER_Auth__SeedEmail: ${MPAGER_SEED_EMAIL:?Set MPAGER_SEED_EMAIL in .env (initial admin email)}
-      # Movie library mount (not yet used by the app, reserved).
-      MPAGER_MOVIEMNT: /mnt/movies
+      # A blank seed user/password lets the API's normal appsettings/default behavior apply.
+      MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-}
+      MEDIAPAGER_SEED_PASS: ${MEDIAPAGER_SEED_PASS:-}
+      MEDIAPAGER_EKEY: ${MEDIAPAGER_EKEY:-}
+      MEDIAPAGER_TMDB_API_KEY: ${MEDIAPAGER_TMDB_API_KEY:-}
     volumes:
-      - ${MPAGER_DATA_DIR:?Set MPAGER_DATA_DIR in .env (host dir for DB/state)}:/data
-      - ${MPAGER_MOVIES_DIR:?Set MPAGER_MOVIES_DIR in .env (host movie library dir)}:/mnt/movies
+      - ${MEDIAPAGER_DATA_DIR:?Set MEDIAPAGER_DATA_DIR in .env (host dir for DB/state)}:/data
+      - ${MEDIAPAGER_MOVIES_DIR:?Set MEDIAPAGER_MOVIES_DIR in .env (host movie library dir)}:/mnt/movies
     networks:
       internal: {}
     # No published ports: stays private on the internal network; reached only via mediapager-web.
@@ -41,4 +40,4 @@ services:
       # internal: reach mediapager-api by name; qnet: serve the SPA on its own LAN IP.
       internal: {}
       qnet:
-        ipv4_address: ${MPAGER_WEB_IP:?Set MPAGER_WEB_IP in .env (free static LAN IP for the web UI)}
+        ipv4_address: ${MEDIAPAGER_WEB_IP:?Set MEDIAPAGER_WEB_IP in .env (free static LAN IP for the web UI)}
