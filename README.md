@@ -257,6 +257,27 @@ Compose pulls the image, creates its own network and persistent volumes, and pub
 application at `http://localhost:8080`. No pre-existing network or `.env` file is required.
 Container Station and Portainer can deploy the same Compose file as a stack.
 
+### Run the Docker Hub image directly
+
+To start the single container without cloning the repository or using Compose:
+
+```sh
+mkdir -p media
+docker pull mediapager/mediapager:latest
+docker run -d --name mediapager --restart unless-stopped \
+  -p 8080:5000 \
+  -v mediapager-data:/data \
+  -v mediapager-community-plugins:/app/plugins/community \
+  -v "$PWD/media:/mnt/media:ro" \
+  -e MEDIAPAGER_SEED_USER=admin@mediapager.local \
+  -e MEDIAPAGER_Frontend__BaseUrl=http://localhost:8080 \
+  mediapager/mediapager:latest
+```
+
+Use `/mnt/media/...` paths for catalogs. Get the first-run password with
+`docker logs mediapager`. For a custom media directory, change the host path in the bind
+mount; for a custom public URL, change `MEDIAPAGER_Frontend__BaseUrl`.
+
 ### Mount your media and create catalogs
 
 Compose bind-mounts the host folder in `MEDIAPAGER_MEDIA_PATH` (default `./media`) into the
