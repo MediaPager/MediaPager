@@ -257,10 +257,27 @@ Compose pulls the image, creates its own network and persistent volumes, and pub
 application at `http://localhost:8080`. No pre-existing network or `.env` file is required.
 Container Station and Portainer can deploy the same Compose file as a stack.
 
-The default media folder is `./media`; set `MEDIAPAGER_MEDIA_PATH` in `.env` to mount a
-different folder. The media mount is read-only at `/mnt/media`, so configure library
-catalogs to use paths under that mount. Database/signing-key state and installed community
-plugins are stored in named Docker volumes and survive container updates.
+### Mount your media and create catalogs
+
+Compose bind-mounts the host folder in `MEDIAPAGER_MEDIA_PATH` (default `./media`) into the
+container at `/mnt/media`, read-only. Put your libraries beneath that folder, for example:
+
+```text
+./media/
+├── Movies/
+└── TV/
+```
+
+Then create catalogs in MediaPager using the **container paths** `/mnt/media/Movies` and
+`/mnt/media/TV`. Do not enter the host path (such as `/share/Media` or `/Volumes/Media`)
+as the catalog path; the API runs inside the container and sees the mounted path instead.
+
+In Container Station or Portainer, bind your host media directory to `/mnt/media` and make
+it read-only. For libraries in separate host folders, add a bind mount for each folder at a
+distinct container path, then create catalogs using those container paths.
+
+Database/signing-key state and installed community plugins are stored in named Docker
+volumes and survive container updates.
 
 On first run, a temporary password for `MEDIAPAGER_SEED_USER` (default
 `admin@mediapager.local`) is written to the container log. Get it with:
