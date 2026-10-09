@@ -4,6 +4,15 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY MediaPager.App.Api ./MediaPager.App.Api
+COPY MediaPager.App.Core ./MediaPager.App.Core
+COPY MediaPager.App.PluginContracts ./MediaPager.App.PluginContracts
+COPY MediaPager.Plugins.Email.MailGun ./MediaPager.Plugins.Email.MailGun
+COPY MediaPager.Plugins.Email.Smtp ./MediaPager.Plugins.Email.Smtp
+COPY MediaPager.Plugins.Search.Local ./MediaPager.Plugins.Search.Local
+COPY MediaPager.Plugins.Search.Tmdb ./MediaPager.Plugins.Search.Tmdb
+COPY MediaPager.Plugins.Stream.Local ./MediaPager.Plugins.Stream.Local
+COPY MediaPager.Plugins.Subtitles.OpenSubtitles ./MediaPager.Plugins.Subtitles.OpenSubtitles
+COPY MediaPager.Plugins.Subtitles.Subdl ./MediaPager.Plugins.Subtitles.Subdl
 
 # Publish the API. Official plugins are deployed at build into the publish output's
 # plugins/official directory (same install-into-dir layout as community plugins).
@@ -42,7 +51,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=build /ms-playwright /ms-playwright
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000 \
-    MPAGER_AUTH_DB_PATH=/data/db/mediapager-auth.db \
-    MPAGER_Plugins__Directory=/app/plugins
+    MEDIAPAGER_DB_PATH=/data/db/mediapager-auth.db \
+    MEDIAPAGER_Plugins__Directory=/app/plugins
 EXPOSE 5000
 ENTRYPOINT ["dotnet", "MediaPager.App.Api.dll"]
