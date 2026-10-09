@@ -1,0 +1,11 @@
+# ---------- Build SPA ----------
+FROM node:24-trixie AS build
+WORKDIR /src
+COPY MediaPager.App.Ui ./MediaPager.App.Ui
+RUN cd MediaPager.App.Ui && npm ci && npm run build
+
+# ---------- nginx runtime ----------
+FROM nginx:trixie
+COPY --from=build /src/MediaPager.App.Ui/dist /usr/share/nginx/html
+COPY nginx.web.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
