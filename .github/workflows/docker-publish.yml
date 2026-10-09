@@ -6,6 +6,34 @@ on:
       - master
     tags:
       - "v*"
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - VERSION
+      - docker-compose.yml
+      - MediaPager.slnx
+      - MediaPager.App.Api
+      - MediaPager.App.Api/**
+      - MediaPager.App.Core
+      - MediaPager.App.Core/**
+      - MediaPager.App.PluginContracts
+      - MediaPager.App.PluginContracts/**
+      - MediaPager.App.Ui
+      - MediaPager.App.Ui/**
+      - MediaPager.Plugins.Email.MailGun
+      - MediaPager.Plugins.Email.MailGun/**
+      - MediaPager.Plugins.Email.Smtp
+      - MediaPager.Plugins.Email.Smtp/**
+      - MediaPager.Plugins.Search.Local
+      - MediaPager.Plugins.Search.Local/**
+      - MediaPager.Plugins.Search.Tmdb
+      - MediaPager.Plugins.Search.Tmdb/**
+      - MediaPager.Plugins.Stream.Local
+      - MediaPager.Plugins.Stream.Local/**
+      - MediaPager.Plugins.Subtitles.OpenSubtitles
+      - MediaPager.Plugins.Subtitles.OpenSubtitles/**
+      - MediaPager.Plugins.Subtitles.Subdl
+      - MediaPager.Plugins.Subtitles.Subdl/**
   workflow_dispatch:
 
 permissions:
