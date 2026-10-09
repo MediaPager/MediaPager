@@ -84,7 +84,7 @@ For local development, install:
 - Git with submodule support
 - .NET 10 SDK
 - Node.js 24 and npm
-- Docker Engine and Docker Compose for container deployment
+- Docker Engine/Desktop (the dev launcher starts local PostGIS; Compose is used for container deployment)
 
 Clone all repositories with the superproject:
 
@@ -99,6 +99,80 @@ transports. To populate submodules in an existing clone:
 ```sh
 git submodule update --init --recursive
 ```
+
+## Dev Setup (1-2-3)
+
+With Git, the .NET 10 SDK, Node.js 24/npm, and Docker running, start both database variants:
+
+```sh
+git clone --recurse-submodules https://github.com/MediaPager/MediaPager.git
+cd MediaPager
+./dev.sh up
+```
+
+Running `./dev.sh` or `./dev.sh help` prints the help text. `./dev.sh up` fills in the
+standard local settings when absent, starts a persistent PostGIS container if needed,
+installs UI npm dependencies if missing, and runs the SQLite and PostgreSQL variants side
+by side:
+
+| Database | API | SPA |
+|---|---|---|
+| SQLite | `http://localhost:5074` | `http://localhost:5173` |
+| PostgreSQL | `http://localhost:5075` | `http://localhost:5174` |
+
+The local PostgreSQL defaults are container `postgis`, user `postgres`, password `password`,
+and database `mediapager_dev`. The database and migrations are created automatically. The
+PostGIS container and its Docker volume stay running when MediaPager is stopped.
+`./dev.sh --refresh` drops both dev databases and recreates them from the current migrations.
+On Windows, the local-only `dev.ps1` counterpart has the same commands (`.\dev.ps1 help`,
+`.\dev.ps1 up`) but is not included in clones yet.
+
+For an empty database, the launchers seed `admin@mediapager.local` with password
+`DefaultPasswordChangeMe` and print those credentials at startup. The seed is only used when
+there is no existing super-admin; it does not change passwords in an existing database.
+
+**Optional TMDB metadata/search:** create a TMDB account at
+[themoviedb.org](https://www.themoviedb.org/signup), request an API key, and set
+`MEDIAPAGER_TMDB_API_KEY` in `~/.MediaPager/dev/credentials.sh`. The launcher announces when
+this optional key is missing; the rest of the app still starts. A key entered in Settings
+takes precedence over the environment variable.
+
+The local defaults are process-scoped. To customize them persistently, create
+`~/.MediaPager/dev/credentials.sh` and add environment assignments such as:
+
+```sh
+export MEDIAPAGER_Database__Provider='PostgreSQL'
+export MEDIAPAGER_ConnectionStrings__AuthDatabase='Host=127.0.0.1;Port=5432;Database=mediapager_dev;Username=postgres;Password=password'
+export MEDIAPAGER_Auth__SigningKey='your_32_byte_sign_key_placeholder_here'
+export MEDIAPAGER_DB_PATH="$HOME/.MediaPager/db/mediapager.db"
+export MEDIAPAGER_SEED_USER='admin@mediapager.local'
+export MEDIAPAGER_SEED_PASS='DefaultPasswordChangeMe'
+# Optional: replace with your TMDB API key.
+# export MEDIAPAGER_TMDB_API_KEY='PASTE_TMDB_API_KEY_HERE'
+```
+
+Windows reads an optional `%USERPROFILE%\.MediaPager\dev\credentials.ps1` file. Create it
+with `New-Item -ItemType Directory -Path "$HOME\.MediaPager\dev" -Force` and open it with
+`notepad "$HOME\.MediaPager\dev\credentials.ps1"`. Use PowerShell assignments there:
+
+```powershell
+$env:MEDIAPAGER_Database__Provider = 'PostgreSQL'
+$env:MEDIAPAGER_ConnectionStrings__AuthDatabase = 'Host=127.0.0.1;Port=5432;Database=mediapager_dev;Username=postgres;Password=password'
+$env:MEDIAPAGER_Auth__SigningKey = 'your_32_byte_sign_key_placeholder_here'
+$env:MEDIAPAGER_DB_PATH = (Join-Path $HOME 'AppData\Roaming\MediaPager\db\mediapager.db')
+$env:MEDIAPAGER_SEED_USER = 'admin@mediapager.local'
+$env:MEDIAPAGER_SEED_PASS = 'DefaultPasswordChangeMe'
+# Optional: replace with your TMDB API key.
+# $env:MEDIAPAGER_TMDB_API_KEY = 'PASTE_TMDB_API_KEY_HERE'
+```
+
+Alternatively, put the `$env:` assignments in your PowerShell profile (`notepad $PROFILE`).
+
+> **Development only:** without a configured signing key, the launcher uses
+> `your_32_byte_sign_key_placeholder_here`. This is public test data; never use it in
+> production. SQLite and PostgreSQL hold separate databases; switching or refreshing them
+> does not copy accounts, passwords, or saved API keys/settings. Users must create/reset
+> accounts and re-enter database-stored API keys in the selected database.
 
 ## Build and run locally
 
@@ -164,18 +238,20 @@ precedence over the built base URL. If neither is set, the UI uses a same-origin
 
 | Variable | Purpose, precedence, and default |
 |---|---|
-| `MEDIAPAGER_DB_PATH` | Direct database-path override; checked first. |
+| `MEDIAPAGER_Database__Provider` | Database provider: `Sqlite` (default) or `PostgreSQL`. Selects the provider-specific EF migration set. |
+| `MEDIAPAGER_ConnectionStrings__AuthDatabase` | Full connection string for the selected provider. SQLite defaults to the platform database path; PostgreSQL requires a connection string. |
+| `MEDIAPAGER_DB_PATH` | Legacy SQLite database-path override; takes precedence over the SQLite connection string. Not used for PostgreSQL. |
+| `MEDIAPAGER_Auth__SigningKeyPath` | Optional persistent JWT signing-key path; useful when the database is remote. |
 | `MEDIAPAGER_SEED_USER` | Initial super-admin email/login. Defaults to `admin@mediapager.local`; used only when the first super-admin is created. |
 | `MEDIAPAGER_SEED_PASS` | Optional initial super-admin password. If empty, a temporary password is generated and logged once. |
-| `MEDIAPAGER_EKEY` | JWT signing key; must be at least 32 UTF-8 bytes. When omitted, the API generates a random key and stores it as `signing.key` beside the database. It is not a database-encryption key. |
+| `MEDIAPAGER_EKEY` | JWT signing key; must be at least 32 UTF-8 bytes. When omitted, the API generates a random key in persistent app data (beside a SQLite database by default). It is not a database-encryption key. |
 
-Database path resolution starts with `MEDIAPAGER_DB_PATH`, then configured database
-settings/connection strings, then the platform default. The
-default is `%APPDATA%/MediaPager/db/mediapager.db` on Windows and
-`~/.MediaPager/db/mediapager.db` on macOS/Linux. Any path is normalized to an absolute path
-at startup. These defaults use the operating system user profile (`APPDATA` on Windows;
-`HOME`/the user profile on macOS and Linux); set one of the database-path variables to
-avoid relying on the service account's home directory.
+SQLite database path resolution starts with `MEDIAPAGER_DB_PATH`, then the configured
+connection string/database path, then the platform default. The default is
+`%APPDATA%/MediaPager/db/mediapager.db` on Windows and `~/.MediaPager/db/mediapager.db` on
+macOS/Linux. PostgreSQL uses the configured connection string. EF applies the selected
+provider's migrations at startup. Changing providers creates/updates the schema in that
+database; moving existing data between providers is a separate import/export operation.
 
 ### Host runtime settings and plugins
 
@@ -230,13 +306,17 @@ store for production.
 | `MEDIAPAGER_SEED_PASS` | Compose `.env` / shell | Optional first-run admin password. |
 | `MEDIAPAGER_EKEY` | Compose `.env` / shell | Optional JWT signing key. |
 | `MEDIAPAGER_TMDB_API_KEY` | Compose `.env` / shell | Optional TMDB key; saved plugin settings take precedence. |
+| `MEDIAPAGER_DATABASE_PROVIDER` | Compose `.env` / shell | Database provider passed to the container; defaults to `Sqlite`. |
+| `MEDIAPAGER_AUTH_CONNECTION_STRING` | Compose `.env` / shell | Provider connection string. Compose defaults to its persistent SQLite file; set this with provider `PostgreSQL` to use PostgreSQL. |
 | `ASPNETCORE_ENVIRONMENT` | ASP.NET Core host | Launch profiles set `Development`; set an appropriate environment for deployments. |
 | `DOTNET_ENVIRONMENT` | .NET host | Standard .NET host environment selector; supported by `WebApplication.CreateBuilder`. |
 | `ASPNETCORE_URLS` | ASP.NET Core host/container | Bind address. The image listens on `http://0.0.0.0:5000`; Compose publishes it on `MEDIAPAGER_PORT`. |
 | `PLAYWRIGHT_BROWSERS_PATH` | Docker image | Set internally to `/ms-playwright` in build and runtime images; normally leave unchanged. |
 
-The container also sets `MEDIAPAGER_DB_PATH=/data/db/mediapager-auth.db` and
-`MEDIAPAGER_Plugins__Directory=/app/plugins`. Compose creates its own network; no
+The container configures SQLite by default at `/data/db/mediapager-auth.db`, persists its
+signing key under `/data`, and sets `MEDIAPAGER_Plugins__Directory=/app/plugins`. To use
+PostgreSQL, set `MEDIAPAGER_DATABASE_PROVIDER=PostgreSQL` and
+`MEDIAPAGER_AUTH_CONNECTION_STRING` in the Compose `.env` file. Compose creates its own network; no
 pre-existing Docker network is required.
 
 ## Docker deployment
@@ -395,9 +475,9 @@ process environment. Secret key material must not be included in the image or so
 
 ## Data, accounts, and operations
 
-- The SQLite auth database, runtime settings, accounts, and plugin settings are kept
-  together under the configured data path. Back up the database and `signing.key` as
-  sensitive operational data.
+- The selected auth database (SQLite by default or PostgreSQL), runtime settings, accounts,
+  and plugin settings are stored together in that database. Back up the database and
+  `signing.key` as sensitive operational data.
 - The API creates the first super-admin only when no super-admin exists and the configured
   seed email is unused. A blank `Auth:SeedPassword` generates a temporary password that is
   written to the startup log. Change it on first login.
