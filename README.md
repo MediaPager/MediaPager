@@ -8,7 +8,8 @@
 MediaPager is a self-hosted media platform composed of an ASP.NET Core API, a Vue 3 +
 Quasar web app, a plugin SDK, and independently versioned plugins. Search, metadata,
 playback, subtitles, email, and other capabilities are provided through plugins instead
-of being hard-wired to one provider.
+of being hard-wired to one provider. The production container includes both the API and
+the built SPA, served from one origin by a single container.
 
 This is the **superproject**. It contains the .NET solution, Dockerfiles, Compose
 deployment, and one Git submodule per component. The components are maintained in their
@@ -82,6 +83,7 @@ For local development, install:
 - Git with submodule support
 - .NET 10 SDK
 - Node.js 24 and npm
+- Docker Engine and Docker Compose for container deployment
 
 Clone all repositories with the superproject:
 
@@ -152,7 +154,7 @@ are plugin-defined rather than a fixed application-wide list.
 
 | Variable | Where it applies | Meaning/default |
 |---|---|---|
-| `VITE_API_BASE_URL` | UI build time | API base URL embedded by Vite. `.env.development` sets `http://localhost:5074`; `.env`/`.env.production` use `/`. It is public browser configuration, never a place for credentials. |
+| `VITE_API_BASE_URL` | UI build time | Used for separate local UI/API development. `.env.development` sets `http://localhost:5074`; the production SPA uses the same-origin `/` base. It is public browser configuration, never a place for credentials. |
 
 At runtime, `/runtime-config.json` with `{ "apiBaseUrl": "https://api.example" }` takes
 precedence over the built base URL. If neither is set, the UI uses a same-origin `/` base.
@@ -219,55 +221,70 @@ store for production.
 
 | Variable | Scope | Purpose/default |
 |---|---|---|
-| `MEDIAPAGER_QNET_NETWORK` | Compose `.env` / shell | Required name of the pre-existing QNAP `qnet` network. |
-| `MEDIAPAGER_WEB_IP` | Compose `.env` / shell | Required unused LAN IP assigned to the web container. |
-| `MEDIAPAGER_DATA_DIR` | Compose `.env` / shell | Required host directory mounted at `/data` for persistent database and application state. |
-| `MEDIAPAGER_MOVIES_DIR` | Compose `.env` / shell | Required host media directory mounted at `/mnt/movies`; the current app does not yet use this mount. |
-| `MEDIAPAGER_SEED_USER` | Compose `.env` / shell | Initial admin email/login, passed directly to the API. |
+| `MEDIAPAGER_IMAGE` | Compose `.env` / shell | Docker Hub image reference; defaults to `mediapager/mediapager:latest`. |
+| `MEDIAPAGER_PORT` | Compose `.env` / shell | Host port; defaults to `8080` and maps to the container's port `5000`. |
+| `MEDIAPAGER_MEDIA_PATH` | Compose `.env` / shell | Host media directory mounted read-only at `/mnt/media`; defaults to `./media`. |
+| `MEDIAPAGER_BASE_URL` | Compose `.env` / shell | Base URL used in email links; defaults to `http://localhost:8080`. |
+| `MEDIAPAGER_SEED_USER` | Compose `.env` / shell | Initial admin email/login; defaults to `admin@mediapager.local`. |
 | `MEDIAPAGER_SEED_PASS` | Compose `.env` / shell | Optional first-run admin password. |
 | `MEDIAPAGER_EKEY` | Compose `.env` / shell | Optional JWT signing key. |
 | `MEDIAPAGER_TMDB_API_KEY` | Compose `.env` / shell | Optional TMDB key; saved plugin settings take precedence. |
 | `ASPNETCORE_ENVIRONMENT` | ASP.NET Core host | Launch profiles set `Development`; set an appropriate environment for deployments. |
 | `DOTNET_ENVIRONMENT` | .NET host | Standard .NET host environment selector; supported by `WebApplication.CreateBuilder`. |
-| `ASPNETCORE_URLS` | ASP.NET Core host/container | API bind addresses. Docker sets `http://0.0.0.0:5000`; local launch profiles configure their own URLs. |
+| `ASPNETCORE_URLS` | ASP.NET Core host/container | Bind address. The image listens on `http://0.0.0.0:5000`; Compose publishes it on `MEDIAPAGER_PORT`. |
 | `PLAYWRIGHT_BROWSERS_PATH` | Docker image | Set internally to `/ms-playwright` in build and runtime images; normally leave unchanged. |
-| `DOCKER_CONFIG` | Optional external Docker/Watchtower tooling | Example in `.env.example`; not consumed by the app or current Compose services. |
-| `WATCHTOWER_POLL_INTERVAL` | Optional external Watchtower tooling | Example in `.env.example`; only relevant if Watchtower is deployed separately. |
 
-The API Docker image also sets `MEDIAPAGER_DB_PATH=/data/db/mediapager-auth.db` and
-`MEDIAPAGER_Plugins__Directory=/app/plugins`. The Compose `.env` variables for network, IP,
-and host paths are used by Compose interpolation; they are not automatically passed to
-the API container unless `docker-compose.yml` maps them under `environment:`.
+The container also sets `MEDIAPAGER_DB_PATH=/data/db/mediapager-auth.db` and
+`MEDIAPAGER_Plugins__Directory=/app/plugins`. Compose creates its own network; no
+pre-existing Docker network is required.
 
 ## Docker deployment
 
-Build both images from the repository root after initializing all submodules:
+The Docker Hub image `mediapager/mediapager:latest` contains the API, official plugins,
+and production SPA in one container. ASP.NET Core serves the SPA and API from the same
+origin.
+
+Clone the deployment files and start MediaPager:
 
 ```sh
-docker build -f Dockerfile.api -t mediapager-api:latest .
-docker build -f Dockerfile.web -t mediapager-web:latest .
-```
-
-`Dockerfile.api` publishes the API and its referenced official plugins, installs the
-Playwright Chromium runtime dependencies, and stores application state under `/data`.
-`Dockerfile.web` builds the SPA and serves it through nginx, proxying API requests to
-`mediapager-api:5000` on the internal Docker network.
-
-The provided Compose deployment uses those local image tags. Prepare the host settings:
-
-```sh
-cp .env.example .env
-# Edit .env: set the qnet name, free web IP, persistent data path, and media path.
-# MEDIAPAGER_SEED_USER optionally changes the initial admin email.
+git clone --depth 1 https://github.com/MediaPager/MediaPager.git
+cd MediaPager
 docker compose up -d
-docker compose logs -f mediapager-api
 ```
 
-This Compose file requires a pre-existing QNAP `qnet` network. The web service is assigned
-the configured LAN address on port 80; the API has no published host port and is reached
-through the internal network. Persist `/data` and protect its database and signing key.
-For another Docker network or a generic host deployment, provide an equivalent deployment
-override rather than assuming the QNAP network exists.
+Compose pulls the image, creates its own network and persistent volumes, and publishes the
+application at `http://localhost:8080`. No pre-existing network or `.env` file is required.
+Container Station and Portainer can deploy the same Compose file as a stack.
+
+The default media folder is `./media`; set `MEDIAPAGER_MEDIA_PATH` in `.env` to mount a
+different folder. The media mount is read-only at `/mnt/media`, so configure library
+catalogs to use paths under that mount. Database/signing-key state and installed community
+plugins are stored in named Docker volumes and survive container updates.
+
+On first run, a temporary password for `MEDIAPAGER_SEED_USER` (default
+`admin@mediapager.local`) is written to the container log. Get it with:
+
+```sh
+docker compose logs mediapager
+```
+
+For a local single-architecture build, initialize all submodules and build from the
+repository root:
+
+```sh
+docker build --build-arg APP_VERSION="$(tr -d '\r\n[:space:]' < VERSION)" \
+  -t mediapager/mediapager:latest .
+docker compose up --pull never -d
+```
+
+### Docker Hub releases
+
+The `.github/workflows/docker-publish.yml` workflow builds and publishes `linux/amd64` and
+`linux/arm64` images. It tags each image as `latest`, with the application version from
+`VERSION`, with the Git tag, and with the commit SHA.
+
+Stop the deployment with `docker compose down`; named volumes are retained unless removed
+explicitly.
 
 ## Plugin development and discovery
 
@@ -327,9 +344,9 @@ dotnet user-secrets set "Auth:SigningKey" "$(openssl rand -base64 48)" \
 |---|---|
 | Project files are missing or `dotnet build` cannot resolve a project reference | Run `git submodule update --init --recursive` and build from the superproject root. |
 | UI cannot reach the API | Confirm the API is listening on port 5074; check `VITE_API_BASE_URL` or the runtime `runtime-config.json`. |
-| Docker Compose reports a missing variable | Copy `.env.example` to `.env` and fill in the required qnet name, web IP, data path, and media path. |
-| Docker Compose cannot find `qnet` | Set `MEDIAPAGER_QNET_NETWORK` to an existing QNAP `qnet` network name. |
-| The web container cannot reach the API | Keep both services on the internal network and use the Compose service name `mediapager-api`. |
+| Docker Compose reports an unavailable image | Run `docker compose pull`; check that Docker Hub has `mediapager/mediapager:latest`. |
+| Port `8080` is already in use | Set `MEDIAPAGER_PORT` in `.env` to another free host port. |
+| UI or API does not start | Check `docker compose logs mediapager`; both run in the same container. |
 | Plugin install fails for a public repository | Confirm the repository name, default/selected branch, root manifest filename, and SDK major version. |
 | Private plugin clone fails | Mount a valid deploy key and set `MEDIAPAGER_GIT_SSH_PRIVATE_KEY_PATH`; public repositories need no SSH configuration. |
 | Email or provider requests fail | Confirm that provider settings are configured in the UI and that the plugin is enabled/loaded. |

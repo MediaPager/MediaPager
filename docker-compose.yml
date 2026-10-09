@@ -1,43 +1,31 @@
-# Portable: override these via a .env file or your shell; defaults work for a local run.
-#   MEDIAPAGER_DATA_DIR     -> where the SQLite DB + app state persist on the host
-#   MEDIAPAGER_MOVIES_DIR   -> host path to your movie library (mounted at /mnt/movies)
-#   MEDIAPAGER_QNET_NETWORK -> QNAP qnet network name (gives the web container its own LAN IP)
-#   MEDIAPAGER_WEB_IP       -> static LAN IP for the web container (must be free on your LAN)
-networks:
-  internal: {}
-  qnet:
-    external: true
-    name: ${MEDIAPAGER_QNET_NETWORK:?Set MEDIAPAGER_QNET_NETWORK in .env (your QNAP qnet network name)}
-
 services:
-  mediapager-api:
-    image: mediapager-api:latest
-    container_name: mediapager-api
+  mediapager:
+    image: ${MEDIAPAGER_IMAGE:-mediapager/mediapager:latest}
+    pull_policy: missing
+    container_name: mediapager
     restart: unless-stopped
+    ports:
+      - "${MEDIAPAGER_PORT:-8080}:5000"
     environment:
-      # SQLite lives under /data, which is volume-mounted so it persists across rebuilds.
-      MEDIAPAGER_DB_PATH: ${MEDIAPAGER_DB_PATH:-/data/db/mediapager-auth.db}
       ASPNETCORE_URLS: http://0.0.0.0:5000
-      # A blank seed user/password lets the API's normal appsettings/default behavior apply.
-      MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-}
+      MEDIAPAGER_DB_PATH: /data/db/mediapager-auth.db
+      MEDIAPAGER_Plugins__Directory: /app/plugins
+      MEDIAPAGER_Frontend__BaseUrl: ${MEDIAPAGER_BASE_URL:-http://localhost:8080}
+      MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-admin@mediapager.local}
       MEDIAPAGER_SEED_PASS: ${MEDIAPAGER_SEED_PASS:-}
       MEDIAPAGER_EKEY: ${MEDIAPAGER_EKEY:-}
       MEDIAPAGER_TMDB_API_KEY: ${MEDIAPAGER_TMDB_API_KEY:-}
     volumes:
-      - ${MEDIAPAGER_DATA_DIR:?Set MEDIAPAGER_DATA_DIR in .env (host dir for DB/state)}:/data
-      - ${MEDIAPAGER_MOVIES_DIR:?Set MEDIAPAGER_MOVIES_DIR in .env (host movie library dir)}:/mnt/movies
-    networks:
-      internal: {}
-    # No published ports: stays private on the internal network; reached only via mediapager-web.
+      - mediapager-data:/data
+      - mediapager-community-plugins:/app/plugins/community
+      - ${MEDIAPAGER_MEDIA_PATH:-./media}:/mnt/media:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
-  mediapager-web:
-    image: mediapager-web:latest
-    container_name: mediapager-web
-    restart: unless-stopped
-    depends_on:
-      - mediapager-api
-    networks:
-      # internal: reach mediapager-api by name; qnet: serve the SPA on its own LAN IP.
-      internal: {}
-      qnet:
-        ipv4_address: ${MEDIAPAGER_WEB_IP:?Set MEDIAPAGER_WEB_IP in .env (free static LAN IP for the web UI)}
+volumes:
+  mediapager-data:
+  mediapager-community-plugins:
