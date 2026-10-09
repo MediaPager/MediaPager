@@ -242,7 +242,8 @@ pre-existing Docker network is required.
 
 The Docker Hub image `mediapager/mediapager:latest` contains the API, official plugins,
 and production SPA in one container. ASP.NET Core serves the SPA and API from the same
-origin.
+origin. Git and the .NET SDK are included so community plugins can be cloned and built
+on demand by the plugin installer.
 
 Clone the deployment files and start MediaPager:
 
