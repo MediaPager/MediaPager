@@ -10,7 +10,9 @@ services:
       - "${MEDIAPAGER_PORT:-8080}:5000"
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:5000
-      MEDIAPAGER_DB_PATH: /data/db/mediapager-auth.db
+      MEDIAPAGER_Database__Provider: ${MEDIAPAGER_DATABASE_PROVIDER:-Sqlite}
+      MEDIAPAGER_ConnectionStrings__AuthDatabase: ${MEDIAPAGER_AUTH_CONNECTION_STRING:-Data Source=/data/db/mediapager-auth.db}
+      MEDIAPAGER_Auth__SigningKeyPath: /data/db/signing.key
       MEDIAPAGER_Plugins__Directory: /app/plugins
       MEDIAPAGER_Frontend__BaseUrl: ${MEDIAPAGER_BASE_URL:-http://localhost:8080}
       MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-admin@mediapager.local}
