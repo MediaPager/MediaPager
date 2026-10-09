@@ -1,0 +1,12 @@
+<Solution>
+  <Project Path="MediaPager.App.Api/MediaPager.App.Api.csproj" />
+  <Project Path="MediaPager.App.Core/MediaPager.App.Core.csproj" />
+  <Project Path="MediaPager.App.PluginContracts/MediaPager.App.PluginContracts.csproj" />
+  <Project Path="MediaPager.Plugins.Email.MailGun/MediaPager.Plugins.Email.MailGun.csproj" />
+  <Project Path="MediaPager.Plugins.Email.Smtp/MediaPager.Plugins.Email.Smtp.csproj" />
+  <Project Path="MediaPager.Plugins.Stream.Local/MediaPager.Plugins.Stream.Local.csproj" />
+  <Project Path="MediaPager.Plugins.Subtitles.OpenSubtitles/MediaPager.Plugins.Subtitles.OpenSubtitles.csproj" />
+  <Project Path="MediaPager.Plugins.Subtitles.Subdl/MediaPager.Plugins.Subtitles.Subdl.csproj" />
+  <Project Path="MediaPager.Plugins.Search.Local/MediaPager.Plugins.Search.Local.csproj" />
+  <Project Path="MediaPager.Plugins.Search.Tmdb/MediaPager.Plugins.Search.Tmdb.csproj" />
+</Solution>

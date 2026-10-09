@@ -1,0 +1,34 @@
+[submodule "MediaPager.App.Core"]
+	path = MediaPager.App.Core
+ url = ../MediaPager.App.Core.git
+[submodule "MediaPager.App.PluginContracts"]
+	path = MediaPager.App.PluginContracts
+ url = ../MediaPager.App.PluginContracts.git
+[submodule "MediaPager.App.Ui"]
+	path = MediaPager.App.Ui
+ url = ../MediaPager.App.Ui.git
+[submodule "MediaPager.App.Api"]
+	path = MediaPager.App.Api
+ url = ../MediaPager.App.Api.git
+[submodule "MediaPager.Plugins.Subtitles.OpenSubtitles"]
+	path = MediaPager.Plugins.Subtitles.OpenSubtitles
+ url = ../MediaPager.Plugins.Subtitles.OpenSubtitles.git
+[submodule "MediaPager.Plugins.Subtitles.Subdl"]
+	path = MediaPager.Plugins.Subtitles.Subdl
+ url = ../MediaPager.Plugins.Subtitles.Subdl.git
+[submodule "MediaPager.Plugins.Search.Tmdb"]
+	path = MediaPager.Plugins.Search.Tmdb
+ url = ../MediaPager.Plugins.Search.Tmdb.git
+[submodule "MediaPager.Plugins.Email.Smtp"]
+	path = MediaPager.Plugins.Email.Smtp
+ url = ../MediaPager.Plugins.Email.Smtp.git
+[submodule "MediaPager.Plugins.Email.MailGun"]
+	path = MediaPager.Plugins.Email.MailGun
+ url = ../MediaPager.Plugins.Email.MailGun.git
+[submodule "MediaPager.Plugins.Search.Local"]
+	path = MediaPager.Plugins.Search.Local
+ url = ../MediaPager.Plugins.Search.Local.git
+	branch = master
+[submodule "MediaPager.Plugins.Stream.Local"]
+	path = MediaPager.Plugins.Stream.Local
+ url = ../MediaPager.Plugins.Stream.Local.git
