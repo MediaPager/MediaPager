@@ -4,6 +4,8 @@ services:
     pull_policy: missing
     container_name: mediapager
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     ports:
       - "${MEDIAPAGER_PORT:-8080}:5000"
     environment:

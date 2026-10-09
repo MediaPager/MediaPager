@@ -23,6 +23,7 @@ own repositories in the [MediaPager GitHub organization](https://github.com/Medi
 - [Build and run locally](#build-and-run-locally)
 - [Environment variables and configuration](#environment-variables-and-configuration)
 - [Docker deployment](#docker-deployment)
+- [Automatic updates with Watchtower](#automatic-updates-with-watchtower)
 - [Plugin development and discovery](#plugin-development-and-discovery)
 - [Data, accounts, and operations](#data-accounts-and-operations)
 - [Troubleshooting](#troubleshooting)
@@ -266,6 +267,7 @@ mkdir -p media
 docker pull mediapager/mediapager:latest
 docker run -d --name mediapager --restart unless-stopped \
   -p 8080:5000 \
+  --label com.centurylinklabs.watchtower.enable=true \
   -v mediapager-data:/data \
   -v mediapager-community-plugins:/app/plugins/community \
   -v "$PWD/media:/mnt/media:ro" \
@@ -324,6 +326,43 @@ The `.github/workflows/docker-publish.yml` workflow builds and publishes `linux/
 
 Stop the deployment with `docker compose down`; named volumes are retained unless removed
 explicitly.
+
+## Automatic updates with Watchtower
+
+The MediaPager Compose service already has Watchtower's opt-in label. Install Watchtower as
+a separate container on the **same Docker host/endpoint** as MediaPager. This lets it check
+Docker Hub hourly and recreate only containers with that label.
+
+### Portainer
+
+1. Select the Portainer environment where the `mediapager` container is running.
+2. Open **Stacks → Add stack**, name it `watchtower`, and choose **Web editor**.
+3. Paste and deploy this Compose definition:
+
+```yaml
+services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["--label-enable", "--interval", "3600", "--cleanup"]
+```
+
+### NAS Container Station / Container Manager
+
+Create a Watchtower application/stack using the same YAML above. Ensure its volume maps the
+NAS Docker socket at `/var/run/docker.sock` to that same path in the container. The MediaPager
+service's `com.centurylinklabs.watchtower.enable=true` label is already in this repository's
+Compose file, so no label changes are needed when deploying it from here.
+
+After deployment, Watchtower checks for a newer `latest` image every hour, then recreates
+MediaPager. The database and community-plugin volumes are retained. The Docker socket grants
+Watchtower control of the Docker host, so only run it on a trusted NAS/Portainer endpoint.
+
+**Maintenance note:** the upstream `containrrr/watchtower` repository is archived. This
+guide describes its current usage; consider that status when choosing unattended updates.
 
 ## Plugin development and discovery
 
