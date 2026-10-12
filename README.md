@@ -71,6 +71,19 @@ directory. Other official plugins and community plugins can be installed on dema
 **Settings → Plugins**. At startup, the host loads eligible official plugins and installed
 community plugins from those directories.
 
+Community plugins run in separate API-host worker processes and exchange versioned
+JSON-line RPC with the host. Settings, media transfers, browser operations, and job activity
+are forwarded through typed host contracts. On Linux, seccomp blocks direct socket creation,
+process execution, and process-like cloning while allowing managed threads. When the kernel
+supports Landlock, workers can read plugin, runtime, and system-data trees plus application
+binaries/dependency metadata, and write only to a private worker scratch directory; kernels
+without thread-synchronized Landlock support log a fallback to seccomp-only isolation.
+On macOS, workers use the system `no-network` sandbox profile when `sandbox-exec` is
+available. Windows workers run in a no-capability AppContainer, with access to temporary
+staged worker files, no network capability, and a mitigation that blocks child-process
+creation. The worker clears inherited environment variables before loading plugin code.
+Other plugins remain in-process; workers are still launched by the application's user account.
+
 Official plugin metadata is in `MediaPager.App.Api/plugins.official.json`; recognized
 community entries are stored in `plugins.community.json`. The appsettings `Plugins:Required`
 lists select which official/community ids are required and which shipped officials are
@@ -124,6 +137,11 @@ The local PostgreSQL defaults are container `postgis`, user `postgres`, password
 and database `mediapager_dev`. The database and migrations are created automatically. The
 PostGIS container and its Docker volume stay running when MediaPager is stopped.
 `./dev.sh --refresh` drops both dev databases and recreates them from the current migrations.
+Set `MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY` to a directory containing direct
+`MediaPager.Plugins.*` project folders (for example, the workspace `Community/` directory)
+to have `dev.sh up`, `restart`, and `--refresh` publish each project with pinned SDK 10.0.401
+and stage its manifest and assemblies into both local community-plugin directories before the
+APIs start. The SDK is read from `MEDIAPAGER_Tools__Directory` and reused for plugin builds.
 On Windows, the local-only `dev.ps1` counterpart has the same commands (`.\dev.ps1 help`,
 `.\dev.ps1 up`) but is not included in clones yet.
 
@@ -147,6 +165,8 @@ export MEDIAPAGER_Auth__SigningKey='your_32_byte_sign_key_placeholder_here'
 export MEDIAPAGER_DB_PATH="$HOME/.MediaPager/db/mediapager.db"
 export MEDIAPAGER_SEED_USER='admin@mediapager.local'
 export MEDIAPAGER_SEED_PASS='DefaultPasswordChangeMe'
+# Optional: publish Community/ plugin sources into both local dev plugin directories on up/restart.
+export MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY="$HOME/Projects/ThrowAway/MoviePager/Community"
 # Optional: replace with your TMDB API key.
 # export MEDIAPAGER_TMDB_API_KEY='PASTE_TMDB_API_KEY_HERE'
 ```
@@ -240,7 +260,7 @@ precedence over the built base URL. If neither is set, the UI uses a same-origin
 |---|---|
 | `MEDIAPAGER_Database__Provider` | Database provider: `Sqlite` (default) or `PostgreSQL`. Selects the provider-specific EF migration set. |
 | `MEDIAPAGER_ConnectionStrings__AuthDatabase` | Full connection string for the selected provider. SQLite defaults to the platform database path; PostgreSQL requires a connection string. |
-| `MEDIAPAGER_DB_PATH` | Legacy SQLite database-path override; takes precedence over the SQLite connection string. Not used for PostgreSQL. |
+| `MEDIAPAGER_DB_PATH` | Legacy SQLite-only path override; takes precedence over the SQLite connection string. Keep it empty/unset for PostgreSQL; the Docker image no longer sets a default here. |
 | `MEDIAPAGER_Auth__SigningKeyPath` | Optional persistent JWT signing-key path; useful when the database is remote. |
 | `MEDIAPAGER_SEED_USER` | Initial super-admin email/login. Defaults to `admin@mediapager.local`; used only when the first super-admin is created. |
 | `MEDIAPAGER_SEED_PASS` | Optional initial super-admin password. If empty, a temporary password is generated and logged once. |
@@ -300,7 +320,7 @@ store for production.
 |---|---|---|
 | `MEDIAPAGER_IMAGE` | Compose `.env` / shell | Docker Hub image reference; defaults to `mediapager/mediapager:latest`. |
 | `MEDIAPAGER_PORT` | Compose `.env` / shell | Host port; defaults to `8080` and maps to the container's port `5000`. |
-| `MEDIAPAGER_MEDIA_PATH` | Compose `.env` / shell | Host media directory mounted read-only at `/mnt/media`; defaults to `./media`. |
+| `MEDIAPAGER_MEDIA_PATH` | Compose `.env` / shell | Host media directory mounted at `/mnt/media` for catalog reads and managed catalog writes; defaults to `./media`. |
 | `MEDIAPAGER_BASE_URL` | Compose `.env` / shell | Base URL used in email links; defaults to `http://localhost:8080`. |
 | `MEDIAPAGER_SEED_USER` | Compose `.env` / shell | Initial admin email/login; defaults to `admin@mediapager.local`. |
 | `MEDIAPAGER_SEED_PASS` | Compose `.env` / shell | Optional first-run admin password. |
@@ -311,20 +331,34 @@ store for production.
 | `ASPNETCORE_ENVIRONMENT` | ASP.NET Core host | Launch profiles set `Development`; set an appropriate environment for deployments. |
 | `DOTNET_ENVIRONMENT` | .NET host | Standard .NET host environment selector; supported by `WebApplication.CreateBuilder`. |
 | `ASPNETCORE_URLS` | ASP.NET Core host/container | Bind address. The image listens on `http://0.0.0.0:5000`; Compose publishes it on `MEDIAPAGER_PORT`. |
-| `PLAYWRIGHT_BROWSERS_PATH` | Docker image | Set internally to `/ms-playwright` in build and runtime images; normally leave unchanged. |
+| `MEDIAPAGER_Tools__Directory` | Compose/API/desktop | Managed tool cache root. Compose uses its persistent `/tools` volume; API/desktop defaults to `tools/` beside the API binary. |
+| `PLAYWRIGHT_BROWSERS_PATH` | Compose/API/desktop | Derived by the tool bootstrapper from `MEDIAPAGER_Tools__Directory`; normally leave unchanged. |
 
 The container configures SQLite by default at `/data/db/mediapager-auth.db`, persists its
-signing key under `/data`, and sets `MEDIAPAGER_Plugins__Directory=/app/plugins`. To use
-PostgreSQL, set `MEDIAPAGER_DATABASE_PROVIDER=PostgreSQL` and
-`MEDIAPAGER_AUTH_CONNECTION_STRING` in the Compose `.env` file. Compose creates its own network; no
-pre-existing Docker network is required.
+signing key under `/data`, and sets `MEDIAPAGER_Plugins__Directory=/app/plugins`. The legacy
+`MEDIAPAGER_DB_PATH` variable is SQLite-only; the image default is now expressed as a SQLite
+connection string so it cannot silently override PostgreSQL mode.
+
+There are two database configuration patterns:
+
+- In the repository's `docker-compose.yml`, `.env` variables
+  `MEDIAPAGER_DATABASE_PROVIDER` and `MEDIAPAGER_AUTH_CONNECTION_STRING` are Compose
+  substitutions which the file maps to the application's nested settings.
+- In a custom Compose file or Portainer's environment-variable editor, use the application's
+  literal names: `MEDIAPAGER_Database__Provider` and
+  `MEDIAPAGER_ConnectionStrings__AuthDatabase`. Double underscores represent configuration
+  nesting. Setting `MEDIAPAGER_DATABASE_PROVIDER` directly in a service's `environment:` does
+  **not** set `Database:Provider`.
+
+The image and Compose stack create their own network; no pre-existing Docker network is required.
 
 ## Docker deployment
 
 The Docker Hub image `mediapager/mediapager:latest` contains the API, official plugins,
 and production SPA in one container. ASP.NET Core serves the SPA and API from the same
-origin. Git and the .NET SDK are included so community plugins can be cloned and built
-on demand by the plugin installer.
+origin. Git is included so community plugins can be cloned on demand. Plugin builds use the
+pinned .NET SDK 10.0.401 installed into the persistent tools volume during background startup;
+the API image uses the smaller ASP.NET runtime image and does not bundle the SDK.
 
 Clone the deployment files and start MediaPager:
 
@@ -338,6 +372,46 @@ Compose pulls the image, creates its own network and persistent volumes, and pub
 application at `http://localhost:8080`. No pre-existing network or `.env` file is required.
 Container Station and Portainer can deploy the same Compose file as a stack.
 
+### Choose SQLite or the bundled PostgreSQL stack
+
+The regular `docker-compose.yml` uses SQLite. For PostgreSQL, use the bundled stack file:
+
+```sh
+cp .env.example .env
+# Set POSTGRES_PASSWORD in .env to a strong URL-safe password.
+docker compose -f docker-compose.postgres.yml up -d
+docker compose -f docker-compose.postgres.yml logs -f mediapager
+```
+
+The PostgreSQL service is named `postgres` on Compose's private network; port 5432 is not
+published to the host. The API waits for PostgreSQL to become healthy, then applies its
+PostgreSQL migrations. Confirm the API log contains `Auth database provider: PostgreSQL` and
+`Applying migration '20261009132038_InitialPostgres'`. The PostgreSQL files live in the
+`mediapager-postgres` named volume, separate from SQLite's `/data` volume.
+
+Stop the current database stack before switching between the two Compose files. Switching
+providers selects a different database; it does not copy user or catalog rows between them.
+`docker compose down` keeps the named volumes; `docker compose down -v` deletes them and their
+database contents.
+
+For an **external** PostgreSQL server, keep using `docker-compose.yml` and set both
+`MEDIAPAGER_DATABASE_PROVIDER=PostgreSQL` and
+`MEDIAPAGER_AUTH_CONNECTION_STRING=Host=<reachable-host>;Port=5432;Database=<db>;Username=<user>;Password=<password>`
+in `.env`. The host must be reachable from inside the container; `localhost` means the
+MediaPager container itself.
+
+### Portainer stacks
+
+For SQLite, deploy the repository's `docker-compose.yml` from Portainer's **Stacks → Add
+stack** page (Git repository or Web editor). No database variables are needed for the default.
+
+For PostgreSQL, use **Stacks → Add stack → Web editor**, paste `docker-compose.postgres.yml`
+(or deploy that file from the repository), then add `POSTGRES_PASSWORD` under **Environment
+variables** before deploying. `POSTGRES_DB` and `POSTGRES_USER` default to `mediapager` and can
+also be set there. Set `MEDIAPAGER_PORT` and `MEDIAPAGER_MEDIA_PATH` if the defaults do not
+suit the host. The API connects to `postgres` using Compose service DNS, so no host port
+mapping for the database is needed.
+
 ### Run the Docker Hub image directly
 
 To start the single container without cloning the repository or using Compose:
@@ -349,8 +423,10 @@ docker run -d --name mediapager --restart unless-stopped \
   -p 8080:5000 \
   --label com.centurylinklabs.watchtower.enable=true \
   -v mediapager-data:/data \
+  -v mediapager-tools:/tools \
   -v mediapager-community-plugins:/app/plugins/community \
-  -v "$PWD/media:/mnt/media:ro" \
+  -v "$PWD/media:/mnt/media:rw" \
+  -e MEDIAPAGER_Tools__Directory=/tools \
   -e MEDIAPAGER_SEED_USER=admin@mediapager.local \
   -e MEDIAPAGER_Frontend__BaseUrl=http://localhost:8080 \
   mediapager/mediapager:latest
@@ -363,7 +439,8 @@ mount; for a custom public URL, change `MEDIAPAGER_Frontend__BaseUrl`.
 ### Mount your media and create catalogs
 
 Compose bind-mounts the host folder in `MEDIAPAGER_MEDIA_PATH` (default `./media`) into the
-container at `/mnt/media`, read-only. Put your libraries beneath that folder, for example:
+container at `/mnt/media`. The host uses this mount for catalog reads and managed catalog output
+writes. Put your libraries beneath that folder, for example:
 
 ```text
 ./media/
@@ -375,12 +452,22 @@ Then create catalogs in MediaPager using the **container paths** `/mnt/media/Mov
 `/mnt/media/TV`. Do not enter the host path (such as `/share/Media` or `/Volumes/Media`)
 as the catalog path; the API runs inside the container and sees the mounted path instead.
 
-In Container Station or Portainer, bind your host media directory to `/mnt/media` and make
-it read-only. For libraries in separate host folders, add a bind mount for each folder at a
+In Container Station or Portainer, bind your host media directory to `/mnt/media` with
+read/write access. For libraries in separate host folders, add a bind mount for each folder at a
 distinct container path, then create catalogs using those container paths.
 
-Database/signing-key state and installed community plugins are stored in named Docker
-volumes and survive container updates.
+Database/signing-key state, installed community plugins, and the managed versioned tool
+cache are stored in named Docker volumes and survive container updates. On a fresh stack,
+the entrypoint starts a short-lived root tools bootstrapper in the background, then runs the
+API as the unprivileged `mediapager` account. FFmpeg/FFprobe are checksum-verified and
+Playwright-matched Chromium is installed into `/tools`; the API and SPA begin serving while
+setup runs. The Activity/Notifications panel shows bootstrap progress and completion. The
+bootstrapper validates the volume's tool manifests on later starts and reuses the installed
+files instead of downloading them again. The executables are not baked into the image or
+installed into the container's system `PATH` (the image still includes Chromium's runtime
+libraries). The pinned .NET SDK used to publish plugins is installed into this same tools
+volume during background startup, without delaying API availability, then reused by plugin
+builds and later container starts.
 
 On first run, a temporary password for `MEDIAPAGER_SEED_USER` (default
 `admin@mediapager.local`) is written to the container log. Get it with:

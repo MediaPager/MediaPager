@@ -14,6 +14,7 @@
 #   MEDIAPAGER_Auth__SigningKey (JWT signing key, stable tokens)
 #   MEDIAPAGER_SEED_USER    -> MEDIAPAGER_Auth__SeedEmail (initial super-admin email)
 #   MEDIAPAGER_SEED_PASS    -> MEDIAPAGER_Auth__SeedPassword (initial super-admin password)
+#   MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY (optional Community/ tree to build and stage)
 set -eu
 cd "$(dirname "$0")"
 
@@ -67,6 +68,11 @@ POSTGRES_PUBLISH_LOG="$RUN_DIR/postgres-publish.log"
 POSTGRES_DROP_LOG="$RUN_DIR/postgres-drop.log"
 REFRESH_BUILD_LOG="$RUN_DIR/refresh-build.log"
 NPM_INSTALL_LOG="$RUN_DIR/npm-install.log"
+LOCAL_PLUGIN_PUBLISH_DIR="$RUN_DIR/local-plugin-publish"
+LOCAL_PLUGIN_PUBLISH_LOG="$RUN_DIR/local-plugin-publish.log"
+LOCAL_PLUGIN_PROJECTS_FILE="$RUN_DIR/local-plugin-projects.tsv"
+LOCAL_PLUGIN_SDK_PATH_FILE="$RUN_DIR/plugin-build-dotnet"
+LOCAL_PLUGIN_SDK_BOOTSTRAP_LOG="$RUN_DIR/plugin-sdk-bootstrap.log"
 POSTGRES_PLUGIN_DIR="$RUN_DIR/postgres-plugins"
 POSTGRES_APP_DIR="$RUN_DIR/postgres-app"
 POSTGRES_DB="mediapager_dev"
@@ -133,6 +139,9 @@ usage() {
   printf '  %-22s %s\n' './dev.sh --refresh' 'drop both dev databases and reseed'
   printf '  %-22s %s\n\n' './dev.sh help' 'show this help (also the no-argument default)'
   printf 'Credentials: %s\n' "$CREDS_FILE"
+  printf 'Local plugin sources: %s\n' "${MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY:-<disabled>}"
+  printf 'When set, every up/restart/--refresh publishes direct MediaPager.Plugins.* children\n'
+  printf 'with pinned .NET SDK 10.0.401 into both local community plugin directories.\n'
   printf 'Logs: %s · %s · %s · %s\n\n' "$API_LOG" "$SPA_LOG" "$POSTGRES_API_LOG" "$POSTGRES_SPA_LOG"
 }
 
@@ -214,6 +223,155 @@ stop_env() {
 
 plugins_root() {
   echo "${MEDIAPAGER_Plugins__Directory:-$HOME/.MediaPager/plugins}"
+}
+
+ensure_pinned_plugin_sdk() {
+  local_tools_dir="${MEDIAPAGER_Tools__Directory:-$PWD/MediaPager.App.Api/bin/Debug/net10.0/tools}"
+  api_project="MediaPager.App.Api/MediaPager.App.Api.csproj"
+  api_dll="MediaPager.App.Api/bin/Debug/net10.0/MediaPager.App.Api.dll"
+
+  say_info 'Building the SDK bootstrap host with the developer-installed dotnet...'
+  if ! dotnet build "$api_project" -c Debug --nologo -v:q >"$LOCAL_PLUGIN_SDK_BOOTSTRAP_LOG" 2>&1; then
+    say_warning 'ERROR: Could not build the plugin SDK bootstrap host.' >&2
+    report_log_errors "$LOCAL_PLUGIN_SDK_BOOTSTRAP_LOG"
+    return 1
+  fi
+  if [ ! -f "$api_dll" ]; then
+    say_warning "ERROR: SDK bootstrap host was not produced: $api_dll" >&2
+    return 1
+  fi
+
+  mkdir -p "$RUN_DIR"
+  say_info 'Ensuring pinned .NET SDK 10.0.401 is available for local plugin builds...'
+  if ! dotnet "$api_dll" --bootstrap-plugin-build-sdk "$local_tools_dir" "$LOCAL_PLUGIN_SDK_PATH_FILE" \
+      >"$LOCAL_PLUGIN_SDK_BOOTSTRAP_LOG" 2>&1; then
+    say_warning 'ERROR: Could not prepare the pinned plugin-build SDK.' >&2
+    report_log_errors "$LOCAL_PLUGIN_SDK_BOOTSTRAP_LOG"
+    return 1
+  fi
+  if [ ! -s "$LOCAL_PLUGIN_SDK_PATH_FILE" ]; then
+    say_warning 'ERROR: SDK bootstrap did not return the pinned dotnet executable path.' >&2
+    return 1
+  fi
+  IFS= read -r LOCAL_PLUGIN_DOTNET <"$LOCAL_PLUGIN_SDK_PATH_FILE"
+  if [ ! -x "$LOCAL_PLUGIN_DOTNET" ]; then
+    say_warning "ERROR: Pinned dotnet executable is missing or not executable: $LOCAL_PLUGIN_DOTNET" >&2
+    return 1
+  fi
+  LOCAL_PLUGIN_SDK_ROOT="$(dirname "$LOCAL_PLUGIN_DOTNET")"
+  LOCAL_PLUGIN_NUGET_PACKAGES="$local_tools_dir/nuget/packages"
+  mkdir -p "$LOCAL_PLUGIN_NUGET_PACKAGES" "$LOCAL_PLUGIN_SDK_ROOT/.cli-home"
+}
+
+publish_local_plugin() (
+  plugin_project="$1"
+  plugin_name="$2"
+  publish_dir="$LOCAL_PLUGIN_PUBLISH_DIR/$plugin_name"
+  rm -rf "$publish_dir"
+  mkdir -p "$publish_dir"
+
+  if ! env \
+      DOTNET_ROOT="$LOCAL_PLUGIN_SDK_ROOT" \
+      DOTNET_MULTILEVEL_LOOKUP=0 \
+      DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+      DOTNET_NOLOGO=1 \
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+      DOTNET_CLI_HOME="$LOCAL_PLUGIN_SDK_ROOT/.cli-home" \
+      NUGET_PACKAGES="$LOCAL_PLUGIN_NUGET_PACKAGES" \
+      "$LOCAL_PLUGIN_DOTNET" publish "$plugin_project" -c Debug -o "$publish_dir" --nologo -v:q \
+      >"$LOCAL_PLUGIN_PUBLISH_LOG" 2>&1; then
+    say_warning "ERROR: Could not publish local plugin $plugin_name with the pinned SDK." >&2
+    report_log_errors "$LOCAL_PLUGIN_PUBLISH_LOG"
+    return 1
+  fi
+  if [ ! -f "$publish_dir/$plugin_name.dll" ]; then
+    say_warning "ERROR: Publish output is missing $plugin_name.dll." >&2
+    report_log_errors "$LOCAL_PLUGIN_PUBLISH_LOG"
+    return 1
+  fi
+)
+
+stage_local_plugin() (
+  plugin_project="$1"
+  plugin_name="$2"
+  plugin_root="$3"
+  publish_dir="$LOCAL_PLUGIN_PUBLISH_DIR/$plugin_name"
+  plugin_dir="$(dirname "$plugin_project")"
+  destination="$plugin_root/community/$plugin_name"
+
+  case "$plugin_root" in
+    ''|/) say_warning "ERROR: Refusing to stage local plugins into unsafe root '$plugin_root'." >&2; return 1 ;;
+  esac
+  if [ ! -f "$plugin_dir/$plugin_name.manifest.json" ] || [ ! -f "$publish_dir/$plugin_name.dll" ]; then
+    say_warning "ERROR: Local plugin manifest or publish output is missing for $plugin_name." >&2
+    return 1
+  fi
+
+  rm -rf "$destination"
+  mkdir -p "$destination"
+  cp "$publish_dir"/*.dll "$destination/"
+  cp "$plugin_dir/$plugin_name.manifest.json" "$destination/"
+  if [ -d "$publish_dir/ui" ]; then
+    cp -R "$publish_dir/ui" "$destination/ui"
+  elif [ -d "$plugin_dir/ui" ]; then
+    cp -R "$plugin_dir/ui" "$destination/ui"
+  fi
+)
+
+ensure_local_plugin_dev_sources() {
+  local_plugin_source="${MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY:-}"
+  [ -n "$local_plugin_source" ] || return 0
+  if [ ! -d "$local_plugin_source" ]; then
+    say_warning "ERROR: Local plugin source directory does not exist: $local_plugin_source" >&2
+    return 1
+  fi
+
+  mkdir -p "$RUN_DIR" "$LOCAL_PLUGIN_PUBLISH_DIR"
+  : >"$LOCAL_PLUGIN_PROJECTS_FILE"
+  plugin_count=0
+  for plugin_dir in "$local_plugin_source"/MediaPager.Plugins.*; do
+    [ -d "$plugin_dir" ] || continue
+    plugin_project=''
+    project_count=0
+    for candidate_project in "$plugin_dir"/MediaPager.Plugins.*.csproj; do
+      [ -f "$candidate_project" ] || continue
+      plugin_project="$candidate_project"
+      project_count=$((project_count + 1))
+    done
+    if [ "$project_count" -ne 1 ]; then
+      say_warning "ERROR: Expected one root MediaPager plugin project in $plugin_dir, found $project_count." >&2
+      return 1
+    fi
+    project_file="${plugin_project##*/}"
+    plugin_name="${project_file%.csproj}"
+    plugin_manifest="$plugin_dir/$plugin_name.manifest.json"
+    if [ ! -f "$plugin_project" ] || [ ! -f "$plugin_manifest" ]; then
+      say_warning "ERROR: Local plugin directory needs its root project and manifest: $plugin_name" >&2
+      return 1
+    fi
+    printf '%s\t%s\n' "$plugin_project" "$plugin_name" >>"$LOCAL_PLUGIN_PROJECTS_FILE"
+    plugin_count=$((plugin_count + 1))
+  done
+  if [ "$plugin_count" -eq 0 ]; then
+    say_warning "ERROR: No MediaPager plugin projects found in $local_plugin_source." >&2
+    return 1
+  fi
+
+  ensure_pinned_plugin_sdk || return 1
+  say_info "Publishing $plugin_count local Community plugins with .NET SDK 10.0.401..."
+  tab=$(printf '\t')
+  while IFS="$tab" read -r plugin_project plugin_name; do
+    [ -n "$plugin_project" ] || continue
+    publish_local_plugin "$plugin_project" "$plugin_name" || return 1
+  done <"$LOCAL_PLUGIN_PROJECTS_FILE"
+
+  for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
+    while IFS="$tab" read -r plugin_project plugin_name; do
+      [ -n "$plugin_project" ] || continue
+      stage_local_plugin "$plugin_project" "$plugin_name" "$local_plugin_root" || return 1
+    done <"$LOCAL_PLUGIN_PROJECTS_FILE"
+  done
+  say_success "Staged $plugin_count local Community plugins into SQLite and PostgreSQL plugin directories."
 }
 
 cmd_down() {
@@ -360,6 +518,7 @@ cmd_up() {
   fi
   ensure_postgres
   ensure_ui_dependencies
+  ensure_local_plugin_dev_sources
 
   if port_up "$API_PORT" && port_up "$SPA_PORT" &&
      port_up "$POSTGRES_API_PORT" && port_up "$POSTGRES_SPA_PORT"; then

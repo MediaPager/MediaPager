@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mediapager}
+      POSTGRES_USER: ${POSTGRES_USER:-mediapager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or Portainer}
+    volumes:
+      - mediapager-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mediapager:
+    image: ${MEDIAPAGER_IMAGE:-mediapager/mediapager:latest}
+    pull_policy: missing
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${MEDIAPAGER_PORT:-8080}:5000"
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:5000
+      MEDIAPAGER_Database__Provider: PostgreSQL
+      MEDIAPAGER_ConnectionStrings__AuthDatabase: Host=postgres;Port=5432;Database=${POSTGRES_DB:-mediapager};Username=${POSTGRES_USER:-mediapager};Password=${POSTGRES_PASSWORD}
+      MEDIAPAGER_DB_PATH: ""
+      MEDIAPAGER_Auth__SigningKeyPath: /data/db/signing.key
+      MEDIAPAGER_Plugins__Directory: /app/plugins
+      MEDIAPAGER_Tools__Directory: /tools
+      PLAYWRIGHT_BROWSERS_PATH: /tools/playwright/1.63.0
+      MEDIAPAGER_Frontend__BaseUrl: ${MEDIAPAGER_BASE_URL:-http://localhost:8080}
+      MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-admin@mediapager.local}
+      MEDIAPAGER_SEED_PASS: ${MEDIAPAGER_SEED_PASS:-}
+      MEDIAPAGER_EKEY: ${MEDIAPAGER_EKEY:-}
+      MEDIAPAGER_TMDB_API_KEY: ${MEDIAPAGER_TMDB_API_KEY:-}
+    volumes:
+      - mediapager-data:/data
+      - mediapager-tools:/tools
+      - mediapager-community-plugins:/app/plugins/community
+      - ${MEDIAPAGER_MEDIA_PATH:-./media}:/mnt/media:rw
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
+
+volumes:
+  mediapager-data:
+  mediapager-tools:
+  mediapager-community-plugins:
+  mediapager-postgres:
