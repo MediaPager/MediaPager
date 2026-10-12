@@ -12,6 +12,7 @@ ARG APP_VERSION=0.0.0-dev
 COPY MediaPager.App.Api ./MediaPager.App.Api
 COPY MediaPager.App.Core ./MediaPager.App.Core
 COPY MediaPager.App.PluginContracts ./MediaPager.App.PluginContracts
+COPY MediaPager.Plugins.Metadata.MusicBrainz ./MediaPager.Plugins.Metadata.MusicBrainz
 COPY NoBugsGiven.Quasar.Interop ./NoBugsGiven.Quasar.Interop
 COPY MediaPager.Plugins.Email.MailGun ./MediaPager.Plugins.Email.MailGun
 COPY MediaPager.Plugins.Email.Smtp ./MediaPager.Plugins.Email.Smtp
