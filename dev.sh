@@ -1,12 +1,14 @@
 #!/bin/sh
 # MediaPager dev environment runner (SQLite :5074/:5173, PostgreSQL :5075/:5174).
 #
-#   ./dev.sh up            bring both database variants up (logs under ~/.MediaPager/dev)
+#   ./dev.sh start         bring both database variants up (logs under ~/.MediaPager/dev)
+#   ./dev.sh start --community also build and stage local Community plugin sources
+#   ./dev.sh up            alias for start
 #   ./dev.sh down          stop both API/SPA pairs (PostGIS stays running)
-#   ./dev.sh restart       down (if up), then up
+#   ./dev.sh restart [--community] down (if up), then up
 #   ./dev.sh show          print the clickable URLs for the env
 #   ./dev.sh secrets       print all secrets/passwords in use
-#   ./dev.sh --refresh     drop both dev databases, then migrate + seed them from scratch
+#   ./dev.sh --refresh [--community] drop both dev databases, then migrate + seed them
 #   ./dev.sh help|--help   print this help
 #
 # Optional creds come from ~/.MediaPager/dev/credentials.sh (or legacy ~/.zsh/.creds/mediapager):
@@ -17,6 +19,7 @@
 #   MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY (optional Community/ tree to build and stage)
 set -eu
 cd "$(dirname "$0")"
+COMMUNITY_MODE=0
 
 if [ -t 1 ] && [ -n "${TERM:-}" ] && [ "$TERM" != "dumb" ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$(printf '\033[0m')
@@ -131,17 +134,18 @@ usage() {
   printf '  %sSQLite%s     API http://localhost:%s · SPA http://localhost:%s\n' "$C_ORANGE" "$C_RESET" "$API_PORT" "$SPA_PORT"
   printf '  %sPostgreSQL%s API http://localhost:%s · SPA http://localhost:%s\n\n' "$C_ORANGE" "$C_RESET" "$POSTGRES_API_PORT" "$POSTGRES_SPA_PORT"
   printf '%sCommands%s\n' "$C_BOLD" "$C_RESET"
-  printf '  %-22s %s\n' './dev.sh up' 'start both database variants'
+  printf '  %-22s %s\n' './dev.sh start' 'start both database variants (local community plugins are skipped)'
+  printf '  %-22s %s\n' './dev.sh start --community' 'start both variants and build/stage configured local community plugins'
   printf '  %-22s %s\n' './dev.sh down' 'stop both API/SPA pairs (PostGIS stays running)'
-  printf '  %-22s %s\n' './dev.sh restart' 'down, then up'
+  printf '  %-22s %s\n' './dev.sh restart [--community]' 'down, then up; optionally build/stage local community plugins'
   printf '  %-22s %s\n' './dev.sh show' 'show URLs and service status'
   printf '  %-22s %s\n' './dev.sh secrets' 'show configured settings'
-  printf '  %-22s %s\n' './dev.sh --refresh' 'drop both dev databases and reseed'
+  printf '  %-22s %s\n' './dev.sh --refresh [--community]' 'drop both dev databases and reseed; optionally stage local community plugins'
   printf '  %-22s %s\n\n' './dev.sh help' 'show this help (also the no-argument default)'
   printf 'Credentials: %s\n' "$CREDS_FILE"
   printf 'Local plugin sources: %s\n' "${MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY:-<disabled>}"
-  printf 'When set, every up/restart/--refresh publishes direct MediaPager.Plugins.* children\n'
-  printf 'with pinned .NET SDK 10.0.401 into both local community plugin directories.\n'
+  printf 'By default, local community plugin builds/staging are skipped. Pass --community to\n'
+  printf 'publish configured direct MediaPager.Plugins.* children with pinned .NET SDK 10.0.401.\n'
   printf 'Logs: %s · %s · %s · %s\n\n' "$API_LOG" "$SPA_LOG" "$POSTGRES_API_LOG" "$POSTGRES_SPA_LOG"
 }
 
@@ -316,9 +320,63 @@ stage_local_plugin() (
   elif [ -d "$plugin_dir/ui" ]; then
     cp -R "$plugin_dir/ui" "$destination/ui"
   fi
+  printf 'staged from local Community sources\n' >"$destination/.local-dev-source"
 )
 
+has_local_plugin_dev_sources() {
+  tab=$(printf '\t')
+  if [ -s "$LOCAL_PLUGIN_PROJECTS_FILE" ]; then
+    while IFS="$tab" read -r plugin_project plugin_name; do
+      case "$plugin_name" in MediaPager.Plugins.*) ;; *) continue ;; esac
+      for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
+        if [ -d "$local_plugin_root/community/$plugin_name" ]; then return 0; fi
+      done
+    done <"$LOCAL_PLUGIN_PROJECTS_FILE"
+  fi
+
+  for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
+    local_community_dir="$local_plugin_root/community"
+    [ -d "$local_community_dir" ] || continue
+    for marker in "$local_community_dir"/*/.local-dev-source; do
+      [ -f "$marker" ] && return 0
+    done
+  done
+  return 1
+}
+
+remove_local_plugin_dev_sources() {
+  removed_count=0
+  tab=$(printf '\t')
+  if [ -s "$LOCAL_PLUGIN_PROJECTS_FILE" ]; then
+    while IFS="$tab" read -r plugin_project plugin_name; do
+      case "$plugin_name" in MediaPager.Plugins.*) ;; *) continue ;; esac
+      for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
+        plugin_destination="$local_plugin_root/community/$plugin_name"
+        if [ -d "$plugin_destination" ]; then
+          rm -rf "$plugin_destination"
+          removed_count=$((removed_count + 1))
+        fi
+      done
+    done <"$LOCAL_PLUGIN_PROJECTS_FILE"
+  fi
+
+  for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
+    local_community_dir="$local_plugin_root/community"
+    [ -d "$local_community_dir" ] || continue
+    for marker in "$local_community_dir"/*/.local-dev-source; do
+      [ -f "$marker" ] || continue
+      rm -rf "${marker%/*}"
+      removed_count=$((removed_count + 1))
+    done
+  done
+  rm -f "$LOCAL_PLUGIN_PROJECTS_FILE"
+  if [ "$removed_count" -gt 0 ]; then
+    say_info "Removed $removed_count locally staged community plugin folders."
+  fi
+}
+
 ensure_local_plugin_dev_sources() {
+  [ "$COMMUNITY_MODE" -eq 1 ] || return 0
   local_plugin_source="${MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY:-}"
   [ -n "$local_plugin_source" ] || return 0
   if [ ! -d "$local_plugin_source" ]; then
@@ -512,6 +570,16 @@ EOF
 }
 
 cmd_up() {
+  if [ "$COMMUNITY_MODE" -eq 0 ] && has_local_plugin_dev_sources; then
+    say_info 'Removing local Community plugins staged by an earlier --community run...'
+    stop_env
+    remove_local_plugin_dev_sources
+  elif [ "$COMMUNITY_MODE" -eq 1 ] && [ -n "${MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY:-}" ] &&
+       { port_up "$API_PORT" || port_up "$SPA_PORT" || port_up "$POSTGRES_API_PORT" || port_up "$POSTGRES_SPA_PORT"; }; then
+    say_info 'Restarting dev services to apply locally staged Community plugins...'
+    stop_env
+  fi
+
   mkdir -p "$RUN_DIR" "$POSTGRES_PLUGIN_DIR/community"
   if [ "$USING_DEFAULT_POSTGRES_SETTINGS" -eq 1 ]; then
     say_info 'Using the standard local PostgreSQL defaults (postgres/password, mediapager_dev).'
@@ -649,6 +717,9 @@ cmd_wipe_and_up() {
         fi ;;
   esac
   rm -rf "$POSTGRES_PLUGIN_DIR" "$POSTGRES_APP_DIR"
+  if [ "$COMMUNITY_MODE" -eq 0 ]; then
+    rm -f "$LOCAL_PLUGIN_PROJECTS_FILE"
+  fi
   say_info 'Recreating databases, applying migrations, and reseeding...'
   cmd_up
   say_success 'Database refresh complete.'
@@ -718,7 +789,41 @@ PostgreSQL JWT key:  $RUN_DIR/postgres-signing.key
 EOF
 }
 
-cmd="${1:-help}"
+cmd=''
+for argument in "$@"; do
+  case "$argument" in
+    --community|--comunity)
+      COMMUNITY_MODE=1
+      ;;
+    start|up)
+      if [ -n "$cmd" ]; then
+        printf 'Only one dev.sh command may be supplied.\n' >&2
+        usage >&2
+        exit 1
+      fi
+      cmd=up
+      ;;
+    down|restart|show|secrets|--refresh|help|--help|-h)
+      if [ -n "$cmd" ]; then
+        printf 'Only one dev.sh command may be supplied.\n' >&2
+        usage >&2
+        exit 1
+      fi
+      cmd="$argument"
+      ;;
+    *)
+      printf 'unknown argument: %s\n' "$argument" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+cmd="${cmd:-help}"
+if [ "$COMMUNITY_MODE" -eq 1 ] && [ "$cmd" != up ] && [ "$cmd" != restart ] && [ "$cmd" != --refresh ]; then
+  printf '%s is only valid with start, restart, or --refresh.\n' '--community' >&2
+  usage >&2
+  exit 1
+fi
 case "$cmd" in
   help|--help|-h) usage ;;
   up) cmd_up ;;
