@@ -32,3 +32,12 @@
 [submodule "MediaPager.Plugins.Stream.Local"]
 	path = MediaPager.Plugins.Stream.Local
  url = ../MediaPager.Plugins.Stream.Local.git
+[submodule "MediaPager.Plugins.Metadata.MusicBrainz"]
+	path = MediaPager.Plugins.Metadata.MusicBrainz
+	url = ../MediaPager.Plugins.Metadata.MusicBrainz.git
+[submodule "MediaPager.App.Desktop"]
+	path = MediaPager.App.Desktop
+	url = ../MediaPager.App.Desktop.git
+[submodule "NoBugsGiven.Quasar.Interop"]
+	path = NoBugsGiven.Quasar.Interop
+	url = https://github.com/nobugsgiven/NoBugsGiven.Quasar.Interop.git

@@ -12,8 +12,11 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:5000
       MEDIAPAGER_Database__Provider: ${MEDIAPAGER_DATABASE_PROVIDER:-Sqlite}
       MEDIAPAGER_ConnectionStrings__AuthDatabase: ${MEDIAPAGER_AUTH_CONNECTION_STRING:-Data Source=/data/db/mediapager-auth.db}
+      MEDIAPAGER_DB_PATH: ${MEDIAPAGER_DB_PATH:-} # SQLite-only legacy override; blank for PostgreSQL
       MEDIAPAGER_Auth__SigningKeyPath: /data/db/signing.key
       MEDIAPAGER_Plugins__Directory: /app/plugins
+      MEDIAPAGER_Tools__Directory: /tools
+      PLAYWRIGHT_BROWSERS_PATH: /tools/playwright/1.63.0
       MEDIAPAGER_Frontend__BaseUrl: ${MEDIAPAGER_BASE_URL:-http://localhost:8080}
       MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-admin@mediapager.local}
       MEDIAPAGER_SEED_PASS: ${MEDIAPAGER_SEED_PASS:-}
@@ -21,15 +24,17 @@ services:
       MEDIAPAGER_TMDB_API_KEY: ${MEDIAPAGER_TMDB_API_KEY:-}
     volumes:
       - mediapager-data:/data
+      - mediapager-tools:/tools
       - mediapager-community-plugins:/app/plugins/community
-      - ${MEDIAPAGER_MEDIA_PATH:-./media}:/mnt/media:ro
+      - ${MEDIAPAGER_MEDIA_PATH:-./media}:/mnt/media:rw
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5000/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 5m
 
 volumes:
   mediapager-data:
+  mediapager-tools:
   mediapager-community-plugins:
