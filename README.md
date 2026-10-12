@@ -374,7 +374,22 @@ Container Station and Portainer can deploy the same Compose file as a stack.
 
 ### Choose SQLite or the bundled PostgreSQL stack
 
-The regular `docker-compose.yml` uses SQLite. For PostgreSQL, use the bundled stack file:
+The repository provides two separate Compose stacks. Choose one database stack and run its
+file explicitly; each stack has its own persistent database volume, and switching stacks does
+not copy records between databases.
+
+#### SQLite stack (default)
+
+The regular `docker-compose.yml` uses SQLite and does not require a `.env` file:
+
+```sh
+docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml logs -f mediapager
+```
+
+#### Bundled PostgreSQL stack
+
+For PostgreSQL, use the bundled stack file and set its required password first:
 
 ```sh
 cp .env.example .env
