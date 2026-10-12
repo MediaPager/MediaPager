@@ -71,9 +71,9 @@ directory. Other official plugins and community plugins can be installed on dema
 **Settings → Plugins**. At startup, the host loads eligible official plugins and installed
 community plugins from those directories.
 
-Community plugins run in separate API-host worker processes and exchange versioned
-JSON-line RPC with the host. Settings, media transfers, browser operations, and job activity
-are forwarded through typed host contracts. On Linux, seccomp blocks direct socket creation,
+Plugins that request worker isolation run in separate API-host processes and exchange versioned
+JSON-line RPC with the host. Settings, declared host capabilities, and job activity are
+forwarded through typed host contracts. On Linux, seccomp blocks direct socket creation,
 process execution, and process-like cloning while allowing managed threads. When the kernel
 supports Landlock, workers can read plugin, runtime, and system-data trees plus application
 binaries/dependency metadata, and write only to a private worker scratch directory; kernels
@@ -320,7 +320,7 @@ store for production.
 |---|---|---|
 | `MEDIAPAGER_IMAGE` | Compose `.env` / shell | Docker Hub image reference; defaults to `mediapager/mediapager:latest`. |
 | `MEDIAPAGER_PORT` | Compose `.env` / shell | Host port; defaults to `8080` and maps to the container's port `5000`. |
-| `MEDIAPAGER_MEDIA_PATH` | Compose `.env` / shell | Host media directory mounted at `/mnt/media` for catalog reads and managed catalog writes; defaults to `./media`. |
+| `MEDIAPAGER_MEDIA_PATH` | Compose `.env` / shell | Host media directory mounted at `/mnt/media` for catalog media storage; defaults to `./media`. |
 | `MEDIAPAGER_BASE_URL` | Compose `.env` / shell | Base URL used in email links; defaults to `http://localhost:8080`. |
 | `MEDIAPAGER_SEED_USER` | Compose `.env` / shell | Initial admin email/login; defaults to `admin@mediapager.local`. |
 | `MEDIAPAGER_SEED_PASS` | Compose `.env` / shell | Optional first-run admin password. |
@@ -439,8 +439,8 @@ mount; for a custom public URL, change `MEDIAPAGER_Frontend__BaseUrl`.
 ### Mount your media and create catalogs
 
 Compose bind-mounts the host folder in `MEDIAPAGER_MEDIA_PATH` (default `./media`) into the
-container at `/mnt/media`. The host uses this mount for catalog reads and managed catalog output
-writes. Put your libraries beneath that folder, for example:
+container at `/mnt/media`. The host uses this mount for catalog access and plugin-provided
+media operations. Put your libraries beneath that folder, for example:
 
 ```text
 ./media/
@@ -463,7 +463,7 @@ API as the unprivileged `mediapager` account. FFmpeg/FFprobe are checksum-verifi
 Playwright-matched Chromium is installed into `/tools`; the API and SPA begin serving while
 setup runs. The Activity/Notifications panel shows bootstrap progress and completion. The
 bootstrapper validates the volume's tool manifests on later starts and reuses the installed
-files instead of downloading them again. The executables are not baked into the image or
+files instead of fetching them again. The executables are not baked into the image or
 installed into the container's system `PATH` (the image still includes Chromium's runtime
 libraries). The pinned .NET SDK used to publish plugins is installed into this same tools
 volume during background startup, without delaying API availability, then reused by plugin
@@ -540,7 +540,9 @@ type such as `Stream`, `Search`, `Metadata`, `Subtitles`, `Email`, `Actions`, or
 Each plugin repository includes a root manifest named
 `MediaPager.Plugins.<Type>.<Name>.manifest.json`. The manifest declares its plugin id,
 display name, description, author, capabilities, SDK, and SDK major version. Optional
-fields can declare dependencies and whether a plugin appears in Community discovery.
+fields can declare dependencies, host capabilities, isolated worker execution, and whether a
+plugin appears in Community discovery. A plugin receives only host capabilities declared in
+its manifest.
 
 Buildable plugins should reference `MediaPager.App.PluginContracts`, not the API or Core.
 The manifest and repo name are checked during discovery and installation; installation
