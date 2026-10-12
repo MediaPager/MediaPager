@@ -9,4 +9,7 @@
   <Project Path="MediaPager.Plugins.Subtitles.Subdl/MediaPager.Plugins.Subtitles.Subdl.csproj" />
   <Project Path="MediaPager.Plugins.Search.Local/MediaPager.Plugins.Search.Local.csproj" />
   <Project Path="MediaPager.Plugins.Search.Tmdb/MediaPager.Plugins.Search.Tmdb.csproj" />
+  <Project Path="MediaPager.Plugins.Metadata.MusicBrainz/MediaPager.Plugins.Metadata.MusicBrainz.csproj" />
+  <Project Path="MediaPager.App.Desktop/MediaPager.App.Desktop.csproj" />
+  <Project Path="NoBugsGiven.Quasar.Interop/NoBugsGiven.Quasar.Interop.csproj" />
 </Solution>
