@@ -154,9 +154,12 @@ media separately from its host or NAS location. Keep signing and Data Protection
 the database backup; without them, protected settings and existing JWT sessions may not be
 recoverable.
 
-When upgrading an older Compose installation, the entrypoint copies the old managed-tool and
-community-plugin volumes into `/data` once and leaves the old volumes intact. Keep those old
-volumes until you have confirmed the new installation works and completed a backup.
+When upgrading an older Compose installation, the entrypoint imports managed tools and
+community plugins from either the old named-volume migration mounts or the legacy `/tools` and
+`/app/plugins/community` mount paths. It also carries the old `/data/db/signing.key` into the new
+key directory when needed. These imports happen once, do not overwrite files already under
+`/data`, and leave old volumes intact. Keep those old volumes until you have confirmed the new
+installation works and completed a backup.
 
 ## Troubleshooting
 
