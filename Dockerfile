@@ -53,21 +53,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --chown=10001:10001 --from=app-build /app/publish .
 COPY --from=app-build /app/docker-entrypoint.sh /app/docker-entrypoint.sh
 
-# Keep the SQLite default in the provider connection string, not the SQLite-only legacy path
-# variable, so PostgreSQL deployments can select their provider without inheriting DB_PATH.
+# Application-managed state lives on /data; packaged binaries and the SPA under /app
+# are immutable at runtime.
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000 \
-    MEDIAPAGER_ConnectionStrings__AuthDatabase="Data Source=/data/db/mediapager-auth.db" \
-    MEDIAPAGER_Plugins__Directory=/app/plugins
-# The API atomically replaces mutable JSON config files in /app. The process needs
-# directory write access to create a sibling temp file and rename it into place.
+    MEDIAPAGER_Settings__Storage__Root=/data \
+    MEDIAPAGER_Settings__Db__Provider=Sqlite \
+    MEDIAPAGER_Settings__Db__Path=/data/db/mediapager-auth.db \
+    MEDIAPAGER_Settings__Storage__Tools__Directory=/data/tools \
+    MEDIAPAGER_Settings__Storage__Plugins__CommunityDirectory=/data/plugins/community \
+    MEDIAPAGER_Settings__Storage__Plugins__InstalledOfficialDirectory=/data/plugins/official \
+    MEDIAPAGER_Settings__Storage__Artwork__PosterDirectory=/data/artwork/posters \
+    MEDIAPAGER_Settings__Storage__Artwork__BackgroundDirectory=/data/artwork/backgrounds \
+    MEDIAPAGER_Settings__Storage__Config__Directory=/data/config \
+    MEDIAPAGER_Settings__Storage__Security__JwtSigningKeyPath=/data/keys/signing.key \
+    MEDIAPAGER_Settings__Storage__Security__DataProtectionKeysDirectory=/data/keys/data-protection
 RUN groupadd --system --gid 10001 mediapager \
     && useradd --system --uid 10001 --gid 10001 --home-dir /home/mediapager \
        --create-home --shell /usr/sbin/nologin mediapager \
-    && mkdir -p /data /tools /app/plugins/community \
+    && mkdir -p /data/db /data/config /data/keys /data/artwork/posters /data/artwork/backgrounds \
+       /data/tools /data/plugins/community /data/plugins/official /data/cache /data/home \
     && chmod 0755 /app/docker-entrypoint.sh \
-    && chown -R mediapager:mediapager /data /tools /home/mediapager /app/plugins/community \
-    && chown root:mediapager /app \
-    && chmod 0775 /app
+    && chown -R mediapager:mediapager /data /home/mediapager \
+    && chown -R root:root /app \
+    && chmod -R a-w /app \
+    && chmod 0555 /app /app/docker-entrypoint.sh
 
 EXPOSE 5000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
