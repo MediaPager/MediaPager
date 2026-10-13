@@ -15,16 +15,38 @@ CACHE_DIR="$DATA_DIR/cache"
 mkdir -p "$DATA_DIR" "$TOOLS_DIR" "$COMMUNITY_DIR" "$OFFICIAL_DIR" "$CONFIG_DIR" \
     "$ARTWORK_DIR" "$KEYS_DIR" "$CACHE_DIR" "$DATA_DIR/home"
 
-# One-time import from the old named volumes. Never remove the source volumes and do
-# not overwrite content already installed under /data.
-if [ -d /migration/legacy-tools ] && [ ! -f "$DATA_DIR/.tools-volume-migrated" ]; then
-    cp -an /migration/legacy-tools/. "$TOOLS_DIR/" 2>/dev/null || true
+# One-time import from the old named volumes and legacy mount paths. Never remove source
+# volumes and do not overwrite content already installed under /data.
+if [ ! -f "$DATA_DIR/.tools-volume-migrated" ]; then
+    for legacy_tools in /migration/legacy-tools /tools; do
+        if [ -d "$legacy_tools" ]; then
+            cp -an "$legacy_tools/." "$TOOLS_DIR/" 2>/dev/null || true
+        fi
+    done
     touch "$DATA_DIR/.tools-volume-migrated"
 fi
-if [ -d /migration/legacy-community ] && [ ! -f "$DATA_DIR/.community-volume-migrated" ]; then
-    cp -an /migration/legacy-community/. "$COMMUNITY_DIR/" 2>/dev/null || true
+if [ ! -f "$DATA_DIR/.community-volume-migrated" ]; then
+    for legacy_community in /migration/legacy-community /app/plugins/community; do
+        if [ -d "$legacy_community" ]; then
+            cp -an "$legacy_community/." "$COMMUNITY_DIR/" 2>/dev/null || true
+        fi
+    done
     touch "$DATA_DIR/.community-volume-migrated"
 fi
+
+# Older deployments kept the signing key beside the SQLite file. Preserve it when the
+# new default key location is first initialized.
+SIGNING_KEY_PATH="${MEDIAPAGER_Settings__Storage__Security__JwtSigningKeyPath:-$KEYS_DIR/signing.key}"
+LEGACY_SIGNING_KEY_PATH="$DATA_DIR/db/signing.key"
+case "$SIGNING_KEY_PATH" in
+    /*)
+        if [ -f "$LEGACY_SIGNING_KEY_PATH" ] && [ ! -e "$SIGNING_KEY_PATH" ] &&
+           [ "$LEGACY_SIGNING_KEY_PATH" != "$SIGNING_KEY_PATH" ]; then
+            mkdir -p "$(dirname "$SIGNING_KEY_PATH")"
+            cp -p "$LEGACY_SIGNING_KEY_PATH" "$SIGNING_KEY_PATH"
+        fi
+        ;;
+esac
 
 # User-overridden non-root containers must mount /data writable by that uid. The
 # published image starts as root to prepare the shared persistent directories and

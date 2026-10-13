@@ -57,7 +57,6 @@ COPY --from=app-build /app/docker-entrypoint.sh /app/docker-entrypoint.sh
 # are immutable at runtime.
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000 \
     MEDIAPAGER_Settings__Storage__Root=/data \
-    MEDIAPAGER_Settings__Db__Provider=Sqlite \
     MEDIAPAGER_Settings__Db__Path=/data/db/mediapager-auth.db \
     MEDIAPAGER_Settings__Storage__Tools__Directory=/data/tools \
     MEDIAPAGER_Settings__Storage__Plugins__CommunityDirectory=/data/plugins/community \
