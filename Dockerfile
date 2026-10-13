@@ -75,7 +75,7 @@ RUN groupadd --system --gid 10001 mediapager \
     && chown -R mediapager:mediapager /data /home/mediapager \
     && chown -R root:root /app \
     && chmod -R a-w /app \
-    && chmod 0555 /app /app/docker-entrypoint.sh
+    && chmod 0555 /app /app/docker-entrypoint.sh /app/.playwright/node/*/node
 
 EXPOSE 5000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
