@@ -58,12 +58,16 @@ COPY --from=app-build /app/docker-entrypoint.sh /app/docker-entrypoint.sh
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000 \
     MEDIAPAGER_ConnectionStrings__AuthDatabase="Data Source=/data/db/mediapager-auth.db" \
     MEDIAPAGER_Plugins__Directory=/app/plugins
+# The API atomically replaces mutable JSON config files in /app. The process needs
+# directory write access to create a sibling temp file and rename it into place.
 RUN groupadd --system --gid 10001 mediapager \
     && useradd --system --uid 10001 --gid 10001 --home-dir /home/mediapager \
        --create-home --shell /usr/sbin/nologin mediapager \
     && mkdir -p /data /tools /app/plugins/community \
     && chmod 0755 /app/docker-entrypoint.sh \
-    && chown -R mediapager:mediapager /data /tools /home/mediapager /app/plugins/community
+    && chown -R mediapager:mediapager /data /tools /home/mediapager /app/plugins/community \
+    && chown root:mediapager /app \
+    && chmod 0775 /app
 
 EXPOSE 5000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
