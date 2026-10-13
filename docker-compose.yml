@@ -4,29 +4,45 @@ services:
     pull_policy: missing
     container_name: mediapager
     restart: unless-stopped
+    read_only: true
     labels:
       com.centurylinklabs.watchtower.enable: "true"
     ports:
       - "${MEDIAPAGER_PORT:-8080}:5000"
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:5000
-      MEDIAPAGER_Database__Provider: ${MEDIAPAGER_DATABASE_PROVIDER:-Sqlite}
-      MEDIAPAGER_ConnectionStrings__AuthDatabase: ${MEDIAPAGER_AUTH_CONNECTION_STRING:-Data Source=/data/db/mediapager-auth.db}
-      MEDIAPAGER_DB_PATH: ${MEDIAPAGER_DB_PATH:-} # SQLite-only legacy override; blank for PostgreSQL
-      MEDIAPAGER_Auth__SigningKeyPath: /data/db/signing.key
-      MEDIAPAGER_Plugins__Directory: /app/plugins
-      MEDIAPAGER_Tools__Directory: /tools
-      PLAYWRIGHT_BROWSERS_PATH: /tools/playwright/1.63.0
-      MEDIAPAGER_Frontend__BaseUrl: ${MEDIAPAGER_BASE_URL:-http://localhost:8080}
+      MEDIAPAGER_Settings__Storage__Root: ${MEDIAPAGER_DATA_ROOT:-/data}
+      MEDIAPAGER_Settings__Db__Provider: ${MEDIAPAGER_DATABASE_PROVIDER:-Sqlite}
+      MEDIAPAGER_Settings__Db__Path: ${MEDIAPAGER_SQLITE_PATH:-/data/db/mediapager-auth.db}
+      MEDIAPAGER_Settings__Db__ConnectionString: ${MEDIAPAGER_AUTH_CONNECTION_STRING:-}
+      MEDIAPAGER_Settings__Db__Host: ${POSTGRES_HOST:-postgres}
+      MEDIAPAGER_Settings__Db__Port: ${POSTGRES_PORT:-5432}
+      MEDIAPAGER_Settings__Db__Catalog: ${POSTGRES_DB:-mediapager}
+      MEDIAPAGER_Settings__Db__User: ${POSTGRES_USER:-mediapager}
+      MEDIAPAGER_Settings__Db__Password: ${POSTGRES_PASSWORD:-}
+      MEDIAPAGER_Settings__Db__SslMode: ${POSTGRES_SSL_MODE:-Prefer}
+      MEDIAPAGER_Settings__Db__ConnectionTimeoutSeconds: ${POSTGRES_CONNECT_TIMEOUT:-15}
+      MEDIAPAGER_Settings__Storage__Artwork__PosterDirectory: ${MEDIAPAGER_POSTER_DIRECTORY:-/data/artwork/posters}
+      MEDIAPAGER_Settings__Storage__Artwork__BackgroundDirectory: ${MEDIAPAGER_BACKGROUND_DIRECTORY:-/data/artwork/backgrounds}
+      MEDIAPAGER_Settings__Storage__Config__Directory: ${MEDIAPAGER_CONFIG_DIRECTORY:-/data/config}
+      MEDIAPAGER_Settings__Storage__Security__JwtSigningKeyPath: ${MEDIAPAGER_SIGNING_KEY_PATH:-/data/keys/signing.key}
+      MEDIAPAGER_Settings__Storage__Security__DataProtectionKeysDirectory: ${MEDIAPAGER_DATA_PROTECTION_KEYS:-/data/keys/data-protection}
+      MEDIAPAGER_Settings__Storage__Tools__Directory: ${MEDIAPAGER_TOOLS_DIRECTORY:-/data/tools}
+      MEDIAPAGER_Settings__Storage__Plugins__BundledOfficialDirectory: /app/plugins/official
+      MEDIAPAGER_Settings__Storage__Plugins__CommunityDirectory: ${MEDIAPAGER_COMMUNITY_PLUGINS_DIRECTORY:-/data/plugins/community}
+      MEDIAPAGER_Settings__Storage__Plugins__InstalledOfficialDirectory: ${MEDIAPAGER_INSTALLED_OFFICIAL_DIRECTORY:-/data/plugins/official}
+      MEDIAPAGER_Settings__Site__BaseUrl: ${MEDIAPAGER_BASE_URL:-http://localhost:8080}
       MEDIAPAGER_SEED_USER: ${MEDIAPAGER_SEED_USER:-admin@mediapager.local}
       MEDIAPAGER_SEED_PASS: ${MEDIAPAGER_SEED_PASS:-}
       MEDIAPAGER_EKEY: ${MEDIAPAGER_EKEY:-}
       MEDIAPAGER_TMDB_API_KEY: ${MEDIAPAGER_TMDB_API_KEY:-}
     volumes:
       - mediapager-data:/data
-      - mediapager-tools:/tools
-      - mediapager-community-plugins:/app/plugins/community
+      - mediapager-tools:/migration/legacy-tools:ro
+      - mediapager-community-plugins:/migration/legacy-community:ro
       - ${MEDIAPAGER_MEDIA_PATH:-./media}:/mnt/media:rw
+    tmpfs:
+      - /tmp:mode=1777,size=512m
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5000/ || exit 1"]
       interval: 30s
