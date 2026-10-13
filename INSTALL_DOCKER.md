@@ -74,11 +74,13 @@ MEDIAPAGER_Settings__Storage__Artwork__PosterDirectory=/data/artwork/posters
 MEDIAPAGER_Settings__Storage__Artwork__BackgroundDirectory=/data/artwork/backgrounds
 ```
 
-Environment variables override the runtime settings database; runtime settings override
-appsettings defaults. Values saved through Settings persist in the database. Database provider
-or location changes restart the API; SQLite path changes copy the database to the new path.
-Switching database providers selects a different database and does not transfer account or
-catalog rows.
+Environment variables override runtime settings for editable application options; those values
+are stored in the selected database. Database connection details are deployment configuration
+only: set them in Compose environment variables or appsettings, not in the Settings UI. The API
+keeps a protected copy in `/data/config/database-bootstrap.json` so it can reconnect before the
+database opens. Change the deployment configuration and restart the container to switch database
+provider or location. Switching providers selects another database and does not transfer account
+or catalog rows.
 
 `MEDIAPAGER_GIT_SSH_PRIVATE_KEY_PATH` remains available as a legacy fallback. The preferred
 method for private plugin repositories is the super-admin SSH key field in Settings, which
