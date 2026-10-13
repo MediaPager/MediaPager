@@ -433,8 +433,11 @@ ensure_local_plugin_dev_sources() {
     return 1
   fi
   nested_contracts_project="$local_plugin_source/MediaPager/MediaPager.App.PluginContracts/MediaPager.App.PluginContracts.csproj"
+  workspace_contracts_project="$local_plugin_source/../Official/MediaPager.App.PluginContracts/MediaPager.App.PluginContracts.csproj"
   sibling_contracts_dir="$local_plugin_source/MediaPager.App.PluginContracts"
-  if [ ! -f "$nested_contracts_project" ] && [ ! -f "$sibling_contracts_dir/MediaPager.App.PluginContracts.csproj" ]; then
+  if [ ! -f "$nested_contracts_project" ] &&
+     [ ! -f "$sibling_contracts_dir/MediaPager.App.PluginContracts.csproj" ] &&
+     [ ! -f "$workspace_contracts_project" ]; then
     if [ -e "$sibling_contracts_dir" ] || [ -L "$sibling_contracts_dir" ]; then
       say_warning "ERROR: PluginContracts sibling path exists but contains no project: $sibling_contracts_dir" >&2
       return 1
