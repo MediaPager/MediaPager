@@ -20,6 +20,14 @@
 set -eu
 cd "$(dirname "$0")"
 COMMUNITY_MODE=0
+LOCAL_PLUGIN_CONTRACTS_SHIM=''
+
+cleanup_local_plugin_contracts_shim() {
+  if [ -n "$LOCAL_PLUGIN_CONTRACTS_SHIM" ] && [ -L "$LOCAL_PLUGIN_CONTRACTS_SHIM" ]; then
+    rm -f "$LOCAL_PLUGIN_CONTRACTS_SHIM"
+  fi
+}
+trap cleanup_local_plugin_contracts_shim EXIT
 
 if [ -t 1 ] && [ -n "${TERM:-}" ] && [ "$TERM" != "dumb" ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$(printf '\033[0m')
@@ -282,7 +290,8 @@ publish_local_plugin() (
       DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
       DOTNET_CLI_HOME="$LOCAL_PLUGIN_SDK_ROOT/.cli-home" \
       NUGET_PACKAGES="$LOCAL_PLUGIN_NUGET_PACKAGES" \
-      "$LOCAL_PLUGIN_DOTNET" publish "$plugin_project" -c Debug -o "$publish_dir" --nologo -v:q \
+      "$LOCAL_PLUGIN_DOTNET" publish "$plugin_project" -c Debug -o "$publish_dir" \
+      -p:ProduceReferenceAssembly=false --nologo -v:q \
       >"$LOCAL_PLUGIN_PUBLISH_LOG" 2>&1; then
     say_warning "ERROR: Could not publish local plugin $plugin_name with the pinned SDK." >&2
     report_log_errors "$LOCAL_PLUGIN_PUBLISH_LOG"
@@ -415,7 +424,41 @@ ensure_local_plugin_dev_sources() {
     return 1
   fi
 
+  # Community plugin projects resolve the SDK from a sibling MediaPager.App.PluginContracts
+  # checkout. In this workspace the authoritative project is under Official/, so provide a
+  # temporary sibling link while publishing; the EXIT trap removes only the link we created.
+  plugin_contracts_project="$PWD/MediaPager.App.PluginContracts/MediaPager.App.PluginContracts.csproj"
+  if [ ! -f "$plugin_contracts_project" ]; then
+    say_warning "ERROR: PluginContracts project was not found: $plugin_contracts_project" >&2
+    return 1
+  fi
+  nested_contracts_project="$local_plugin_source/MediaPager/MediaPager.App.PluginContracts/MediaPager.App.PluginContracts.csproj"
+  sibling_contracts_dir="$local_plugin_source/MediaPager.App.PluginContracts"
+  if [ ! -f "$nested_contracts_project" ] && [ ! -f "$sibling_contracts_dir/MediaPager.App.PluginContracts.csproj" ]; then
+    if [ -e "$sibling_contracts_dir" ] || [ -L "$sibling_contracts_dir" ]; then
+      say_warning "ERROR: PluginContracts sibling path exists but contains no project: $sibling_contracts_dir" >&2
+      return 1
+    fi
+    ln -s "$PWD/MediaPager.App.PluginContracts" "$sibling_contracts_dir"
+    LOCAL_PLUGIN_CONTRACTS_SHIM="$sibling_contracts_dir"
+  fi
+
   ensure_pinned_plugin_sdk || return 1
+  say_info 'Building PluginContracts with the pinned SDK for local project references...'
+  if ! env \
+      DOTNET_ROOT="$LOCAL_PLUGIN_SDK_ROOT" \
+      DOTNET_MULTILEVEL_LOOKUP=0 \
+      DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+      DOTNET_NOLOGO=1 \
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+      DOTNET_CLI_HOME="$LOCAL_PLUGIN_SDK_ROOT/.cli-home" \
+      NUGET_PACKAGES="$LOCAL_PLUGIN_NUGET_PACKAGES" \
+      "$LOCAL_PLUGIN_DOTNET" build "$plugin_contracts_project" -c Debug --nologo -v:q \
+      >"$LOCAL_PLUGIN_PUBLISH_LOG" 2>&1; then
+    say_warning 'ERROR: Could not build PluginContracts for local Community plugins.' >&2
+    report_log_errors "$LOCAL_PLUGIN_PUBLISH_LOG"
+    return 1
+  fi
   say_info "Publishing $plugin_count local Community plugins with .NET SDK 10.0.401..."
   tab=$(printf '\t')
   while IFS="$tab" read -r plugin_project plugin_name; do
