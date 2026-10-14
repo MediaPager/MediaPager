@@ -689,7 +689,7 @@ cmd_up() {
   if ! port_up "$SPA_PORT" && ! pid_alive "$(service_pid "$SPA_PID_FILE")"; then
     say_info 'Starting SQLite SPA...'
     : >"$SPA_LOG"
-    ( cd MediaPager.App.Ui && exec env VITE_API_BASE_URL="http://localhost:${API_PORT}" nohup npm run dev -- --port "$SPA_PORT" --strictPort ) >"$SPA_LOG" 2>&1 &
+    ( cd MediaPager.App.Ui && exec env VITE_API_BASE_URL="${MEDIAPAGER_DEV_API_BASE_URL:-http://localhost:${API_PORT}}" nohup npm run dev -- --port "$SPA_PORT" --strictPort ) >"$SPA_LOG" 2>&1 &
     echo $! >"$SPA_PID_FILE"
   elif port_up "$SPA_PORT"; then
     :
