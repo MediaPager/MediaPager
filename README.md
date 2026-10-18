@@ -7,8 +7,9 @@ other integrations.
 ## Get started
 
 For the supported container setup, follow **[INSTALL_DOCKER.md](INSTALL_DOCKER.md)**. The
-standard Docker Compose install uses SQLite and creates persistent application data on the
-`/data` volume. PostgreSQL is available as a separate deployment option.
+step-by-step **[Portainer Stack guide](PORTAINER.md)** covers both the default SQLite Compose
+stack and the PostgreSQL stack. Both use persistent application data on `/data`; switching
+between database variants does not migrate data.
 
 First login creates the configured seed super-admin when the selected database has no
 super-admin. The temporary password is printed in the API log. There is no open registration;
@@ -19,7 +20,8 @@ administrators invite additional users from Settings.
 MediaPager-managed files (database, local artwork, tools, plugin installs, and runtime config)
 belong under the persistent application data root. Large movie, TV, and other catalog media is
 user-managed: each catalog points to its own folder. A separate host or NAS mount is recommended
-so other apps can access the media independently of MediaPager.
+so other apps can access the media independently of MediaPager. For CIFS/SMB ownership and write
+permissions, see the [Docker media-storage notes](INSTALL_DOCKER.md#nas-and-cifssmb-shares).
 
 ## Project and development
 
@@ -41,5 +43,4 @@ server. Use `./dev.sh help` for the available commands. Component-specific detai
 component repository’s README; plugin authors should start with
 [`MediaPager.App.PluginContracts/README.md`](MediaPager.App.PluginContracts/README.md).
 
-More complete hosted documentation and platform-specific standalone guides are planned for a
-future documentation site.
+More complete hosted documentation is planned for a future documentation site.

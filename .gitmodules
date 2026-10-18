@@ -41,3 +41,6 @@
 [submodule "NoBugsGiven.Quasar.Interop"]
 	path = NoBugsGiven.Quasar.Interop
 	url = https://github.com/nobugsgiven/NoBugsGiven.Quasar.Interop.git
+[submodule "MediaPager.App.EmailTemplates"]
+	path = MediaPager.App.EmailTemplates
+	url = ../MediaPager.App.EmailTemplates.git

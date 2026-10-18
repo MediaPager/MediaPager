@@ -58,9 +58,36 @@ For a large library, use a dedicated host or NAS mount so the media remains easy
 share with other applications. It is also possible to put media under `/data/media` and point a
 catalog there, but that mixes large user-owned media with application-managed files.
 
-Set `MEDIAPAGER_MEDIA_PATH` in `.env` to another host directory. For several media roots, edit
-the Compose file to bind each host directory to its own container path and use those paths in
-the catalogs. Bind mounts should be read/write when plugins need to manage media files.
+Set `MEDIAPAGER_MEDIA_PATH` in `.env` to an absolute host directory. For several media roots,
+edit the Compose file to bind each host directory to its own container path and use those paths
+in the catalogs. Bind mounts should be read/write when plugins need to manage media files.
+
+### NAS and CIFS/SMB shares
+
+The container runs the API as `mediapager` UID/GID `10001:10001`. Docker's `:rw` mount flag
+only says the mount is not read-only; it does not grant this process write permission on a NAS
+share. A CIFS/SMB setup must allow writes both through its server-side share/account ACL and
+through the UID/GID and modes presented to the container. The entrypoint does not `chown`
+`/mnt/media`.
+
+If CIFS is mounted on the Docker host, configure that host mount and its NAS ACL so UID/GID
+`10001:10001` can create and remove files in the media folders (for example, CIFS options may
+include `uid=10001,gid=10001,dir_mode=0775,file_mode=0664`; exact options depend on the NAS and
+mount). If using a CIFS volume managed by Portainer or Compose, configure the equivalent options
+on that volume. Portainer's volume-management access control is separate from filesystem
+permissions. See [Portainer deployment](PORTAINER.md) for both approaches and both database
+variants.
+
+To test a Movies directory as the API identity, substitute your container name and run:
+
+```sh
+docker exec --user 10001:10001 <mediapager-container> sh -c 'ls -ldn /mnt/media/Movies; f=$(mktemp /mnt/media/Movies/.mediapager-test.XXXXXX) && rm "$f" && printf "write test passed\\n"'
+```
+
+If this fails with `Permission denied`, verify the path and the mount's effective UID/GID/modes,
+then check the NAS account's write ACL. A root-owned host test does not prove the API's UID can
+write. Avoid running the API as root or using `chmod 777`; recursive `chown` may not repair
+ownership on a CIFS mount.
 
 ## Storage settings and overrides
 
@@ -131,10 +158,10 @@ settings, or catalog records.
 
 ## Portainer and NAS container managers
 
-Deploy `docker-compose.yml` from Portainer Stacks or the NAS Compose/Container Station screen.
-Leave the named data volume enabled. Set `MEDIAPAGER_PORT` if the default host port is occupied;
-set `MEDIAPAGER_MEDIA_PATH` to the host media directory. When using a NAS path, map that path to
-`/mnt/media` and enter `/mnt/media/...` in MediaPager catalogs.
+See the step-by-step [Portainer deployment guide](PORTAINER.md) for both SQLite and PostgreSQL
+Stacks, persistent storage, NAS media paths, and CIFS/SMB permissions. The container's catalog
+paths remain `/mnt/media/...`; permissions must allow the API UID/GID `10001:10001` to write when
+a plugin manages media files.
 
 ## Upgrade, backup, and restore
 
@@ -173,3 +200,13 @@ installation works and completed a backup.
   super-admin Git SSH key for private repositories.
 - **Disk usage is high:** `/data` contains app-managed state; check catalog media separately at
   the host/NAS mount selected for each catalog.
+- **Catalog media storage is not writable under `/mnt/media`:** FFmpeg must create a temporary
+  file in the destination directory before moving it into place. The UI may report a generic host
+  capability failure; inspect the API container logs for the underlying FFmpeg exception. Confirm
+  the API identity can write there with the UID 10001 test in
+  [Catalog media is separate from application data](#nas-and-cifssmb-shares). Check both the CIFS
+  mount's effective UID/GID and file/directory modes and the NAS account's share ACL. `:rw` and
+  successful writes as host root do not establish access for UID 10001. Portainer-created external
+  volumes do not inherit `driver_opts` from the stack; to set CIFS mapping options, define a CIFS
+  volume in the stack or configure them on the volume itself. Do not run the API as root or use
+  `chmod 777` as a workaround.

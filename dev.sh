@@ -320,29 +320,56 @@ stage_local_plugin() (
     return 1
   fi
 
-  rm -rf "$destination"
+  source_ui_dir=''
+  if [ -d "$publish_dir/ui" ]; then
+    source_ui_dir="$publish_dir/ui"
+  elif [ -d "$plugin_dir/ui" ]; then
+    source_ui_dir="$plugin_dir/ui"
+  fi
+
+  unchanged=1
+  [ -f "$destination/.local-dev-source" ] || unchanged=0
+  [ -f "$destination/$plugin_name.manifest.json" ] &&\
+    cmp -s "$plugin_dir/$plugin_name.manifest.json" "$destination/$plugin_name.manifest.json" || unchanged=0
+  source_dll_count=0
+  destination_dll_count=0
+  for source_dll in "$publish_dir"/*.dll; do
+    [ -f "$source_dll" ] || continue
+    source_dll_count=$((source_dll_count + 1))
+    if [ ! -f "$destination/${source_dll##*/}" ] || ! cmp -s "$source_dll" "$destination/${source_dll##*/}"; then
+      unchanged=0
+    fi
+  done
+  for destination_dll in "$destination"/*.dll; do
+    [ -f "$destination_dll" ] || continue
+    destination_dll_count=$((destination_dll_count + 1))
+  done
+  [ "$source_dll_count" -eq "$destination_dll_count" ] || unchanged=0
+  if [ -n "$source_ui_dir" ]; then
+    [ -d "$destination/ui" ] && diff -qr "$source_ui_dir" "$destination/ui" >/dev/null 2>&1 || unchanged=0
+  elif [ -e "$destination/ui" ]; then
+    unchanged=0
+  fi
+  if [ "$unchanged" -eq 1 ]; then
+    say_info "Local Community plugin $plugin_name is unchanged; keeping its installed folder."
+    return 0
+  fi
+
   mkdir -p "$destination"
+  for destination_dll in "$destination"/*.dll; do
+    [ -f "$destination_dll" ] && rm -f "$destination_dll"
+  done
+  rm -f "$destination/$plugin_name.manifest.json"
   cp "$publish_dir"/*.dll "$destination/"
   cp "$plugin_dir/$plugin_name.manifest.json" "$destination/"
-  if [ -d "$publish_dir/ui" ]; then
-    cp -R "$publish_dir/ui" "$destination/ui"
-  elif [ -d "$plugin_dir/ui" ]; then
-    cp -R "$plugin_dir/ui" "$destination/ui"
+  rm -rf "$destination/ui"
+  if [ -n "$source_ui_dir" ]; then
+    cp -R "$source_ui_dir" "$destination/ui"
   fi
   printf 'staged from local Community sources\n' >"$destination/.local-dev-source"
 )
 
 has_local_plugin_dev_sources() {
-  tab=$(printf '\t')
-  if [ -s "$LOCAL_PLUGIN_PROJECTS_FILE" ]; then
-    while IFS="$tab" read -r plugin_project plugin_name; do
-      case "$plugin_name" in MediaPager.Plugins.*) ;; *) continue ;; esac
-      for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
-        if [ -d "$local_plugin_root/community/$plugin_name" ]; then return 0; fi
-      done
-    done <"$LOCAL_PLUGIN_PROJECTS_FILE"
-  fi
-
   for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
     local_community_dir="$local_plugin_root/community"
     [ -d "$local_community_dir" ] || continue
@@ -355,20 +382,6 @@ has_local_plugin_dev_sources() {
 
 remove_local_plugin_dev_sources() {
   removed_count=0
-  tab=$(printf '\t')
-  if [ -s "$LOCAL_PLUGIN_PROJECTS_FILE" ]; then
-    while IFS="$tab" read -r plugin_project plugin_name; do
-      case "$plugin_name" in MediaPager.Plugins.*) ;; *) continue ;; esac
-      for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
-        plugin_destination="$local_plugin_root/community/$plugin_name"
-        if [ -d "$plugin_destination" ]; then
-          rm -rf "$plugin_destination"
-          removed_count=$((removed_count + 1))
-        fi
-      done
-    done <"$LOCAL_PLUGIN_PROJECTS_FILE"
-  fi
-
   for local_plugin_root in "$(plugins_root)" "$POSTGRES_PLUGIN_DIR"; do
     local_community_dir="$local_plugin_root/community"
     [ -d "$local_community_dir" ] || continue
@@ -378,9 +391,8 @@ remove_local_plugin_dev_sources() {
       removed_count=$((removed_count + 1))
     done
   done
-  rm -f "$LOCAL_PLUGIN_PROJECTS_FILE"
   if [ "$removed_count" -gt 0 ]; then
-    say_info "Removed $removed_count locally staged community plugin folders."
+    say_info "Removed $removed_count local Community plugin folders (Community mode is off)."
   fi
 }
 
@@ -617,7 +629,7 @@ EOF
 
 cmd_up() {
   if [ "$COMMUNITY_MODE" -eq 0 ] && has_local_plugin_dev_sources; then
-    say_info 'Removing local Community plugins staged by an earlier --community run...'
+    say_info 'Removing local Community plugins because --community was not requested...'
     stop_env
     remove_local_plugin_dev_sources
   elif [ "$COMMUNITY_MODE" -eq 1 ] && [ -n "${MEDIAPAGER_LOCAL_PLUGIN_SOURCE_DIRECTORY:-}" ] &&
@@ -664,7 +676,7 @@ cmd_up() {
         MEDIAPAGER_Auth__SigningKeyPath="$RUN_DIR/postgres-signing.key" \
         MEDIAPAGER_Plugins__Directory="$POSTGRES_PLUGIN_DIR" \
         dotnet MediaPager.App.Api.dll
-    ) >"$POSTGRES_API_LOG" 2>&1 &
+    ) >"$POSTGRES_API_LOG" 2>&1 </dev/null &
     echo $! >"$POSTGRES_API_PID_FILE"
   elif port_up "$POSTGRES_API_PORT"; then
     :
@@ -680,7 +692,7 @@ cmd_up() {
       MEDIAPAGER_ConnectionStrings__AuthDatabase="Data Source=$DB_FILE" \
       MEDIAPAGER_Auth__SigningKeyPath="$(dirname "$DB_FILE")/signing.key" \
       MEDIAPAGER_Plugins__Directory="$(plugins_root)" \
-      dotnet run --no-launch-profile --project MediaPager.App.Api/MediaPager.App.Api.csproj >"$API_LOG" 2>&1 &
+      dotnet run --no-launch-profile --project MediaPager.App.Api/MediaPager.App.Api.csproj >"$API_LOG" 2>&1 </dev/null &
     echo $! >"$API_PID_FILE"
   elif port_up "$API_PORT"; then
     :
@@ -689,7 +701,7 @@ cmd_up() {
   if ! port_up "$SPA_PORT" && ! pid_alive "$(service_pid "$SPA_PID_FILE")"; then
     say_info 'Starting SQLite SPA...'
     : >"$SPA_LOG"
-    ( cd MediaPager.App.Ui && exec env VITE_API_BASE_URL="${MEDIAPAGER_DEV_API_BASE_URL:-http://localhost:${API_PORT}}" nohup npm run dev -- --port "$SPA_PORT" --strictPort ) >"$SPA_LOG" 2>&1 &
+    ( cd MediaPager.App.Ui && exec env VITE_API_BASE_URL="${MEDIAPAGER_DEV_API_BASE_URL:-http://localhost:${API_PORT}}" nohup npm run dev -- --host 127.0.0.1 --port "$SPA_PORT" --strictPort ) >"$SPA_LOG" 2>&1 </dev/null &
     echo $! >"$SPA_PID_FILE"
   elif port_up "$SPA_PORT"; then
     :
@@ -698,7 +710,7 @@ cmd_up() {
   if ! port_up "$POSTGRES_SPA_PORT" && ! pid_alive "$(service_pid "$POSTGRES_SPA_PID_FILE")"; then
     say_info 'Starting PostgreSQL SPA...'
     : >"$POSTGRES_SPA_LOG"
-    ( cd MediaPager.App.Ui && exec env VITE_API_BASE_URL="http://localhost:${POSTGRES_API_PORT}" nohup npm run dev -- --port "$POSTGRES_SPA_PORT" --strictPort ) >"$POSTGRES_SPA_LOG" 2>&1 &
+    ( cd MediaPager.App.Ui && exec env VITE_API_BASE_URL="http://localhost:${POSTGRES_API_PORT}" nohup npm run dev -- --host 127.0.0.1 --port "$POSTGRES_SPA_PORT" --strictPort ) >"$POSTGRES_SPA_LOG" 2>&1 </dev/null &
     echo $! >"$POSTGRES_SPA_PID_FILE"
   elif port_up "$POSTGRES_SPA_PORT"; then
     :
