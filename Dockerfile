@@ -43,11 +43,7 @@ LABEL org.opencontainers.image.title="MediaPager" \
     org.opencontainers.image.version=${APP_VERSION}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git openssh-client fonts-liberation libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 \
-    libcairo2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0t64 \
-    libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 \
-    libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxkbcommon0 libxrandr2 \
-    libxrender1 libxss1 libxtst6 wget \
+    ca-certificates git openssh-client fonts-liberation wget \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=10001:10001 --from=app-build /app/publish .
@@ -74,8 +70,7 @@ RUN groupadd --system --gid 10001 mediapager \
     && chmod 0755 /app/docker-entrypoint.sh \
     && chown -R mediapager:mediapager /data /home/mediapager \
     && chown -R root:root /app \
-    && chmod -R a-w /app \
-    && chmod 0555 /app /app/docker-entrypoint.sh /app/.playwright/node/*/node
+    && chmod -R a-w /app
 
 EXPOSE 5000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
