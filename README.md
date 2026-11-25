@@ -1,8 +1,8 @@
 # MediaPager
 
 MediaPager is a self-hosted media library and playback app. It combines an ASP.NET Core API,
-a Vue/Quasar web app, and a plugin system for search, metadata, playback, subtitles, email, and
-other integrations.
+a Vue/Quasar web app, and a plugin system for search, metadata, playback, subtitles, email,
+background catalog agents, and other integrations.
 
 ## Get started
 
